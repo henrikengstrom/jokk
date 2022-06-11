@@ -1,0 +1,7 @@
+# Jokk configuration
+# Copy this file over to `jokk.toml` and fill in the blanks as necessary
+
+[kafka]
+    [kafka.local]
+    host = "localhost:9092"
+
