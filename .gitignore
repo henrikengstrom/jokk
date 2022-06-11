@@ -1,0 +1,15 @@
+# General
+*.log
+
+# VS Code specific
+.vscode/
+.history/
+
+# OS specific
+.DS_Store
+
+# Jokk specific
+/jokk
+/jokk.exe
+jokk
+jokk.toml
