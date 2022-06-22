@@ -1,15 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/Shopify/sarama"
+	"github.com/henrikengstrom/jokk/common"
+	"github.com/henrikengstrom/jokk/kafka"
 	"github.com/jessevdk/go-flags"
 	hd "github.com/mitchellh/go-homedir"
-	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -26,8 +27,9 @@ var (
 )
 
 type Args struct {
-	Version               bool   `short:"v" long:"version" description:"Display version information and exit"`
-	CredentialsConfigFile string `short:"f" long:"credentials-file" default:"./jokk.toml"`
+	Version               bool       `short:"v" long:"version" description:"Display version information and exit"`
+	CredentialsConfigFile string     `short:"f" long:"credentials-file" default:"./jokk.toml"`
+	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
 }
 
 type KafkaSettings struct {
@@ -41,10 +43,22 @@ type JokkConfig struct {
 	kafkaConfig
 }
 
-func main() {
-	log := logrus.New()
-	log.Info("welcome to Jokk")
+type PartitionInfo struct {
+	id                int
+	oldOffset         int
+	newOffset         int
+	partitionMsgCount int
+}
 
+type TopicInfo struct {
+	name          string
+	partitions    []PartitionInfo
+	totalMsgCount int
+}
+
+func main() {
+	log := common.NewLogger()
+	log.Info("Welcome to Jokk")
 	var args Args
 	var parser = flags.NewParser(&args, flags.Default)
 	if _, err := parser.Parse(); err != nil {
@@ -57,14 +71,14 @@ func main() {
 				printVersion()
 				os.Exit(0)
 			}
-			log.Error("error with command line argument: ", err)
+			log.Errorf("error with command line argument: %s", err)
 			os.Exit(1)
 		default:
 			if args.Version {
 				printVersion()
 				os.Exit(0)
 			}
-			log.Error("error with command line argument: ", err)
+			log.Errorf("error with command line argument: %s", err)
 			os.Exit(1)
 		}
 	}
@@ -77,28 +91,71 @@ func main() {
 	jokkConfig := JokkConfig{}
 	err := jokkConfig.loadFromFile(args.CredentialsConfigFile)
 	if err != nil {
-		log.Error("could not load or parse configuration file: ", err)
+		log.Errorf("could not load or parse configuration file: %s", err)
 		os.Exit(1)
 	}
 
-	reader := bufio.NewReader(os.Stdin)
+	switch parser.Active.Name {
+	case "listTopics":
 
-	loop := true
-	for loop {
-		in, _ := reader.ReadString('\n')
-		switch strings.Replace(strings.ToUpper(in), "\n", "", 1) {
-		case "Q":
-			loop = false
-		case "H", "HELP":
-			log.Infof("look at the README for supported commands or type 'q' to exit")
-		case "LIST":
-			log.Infof("listing Kafka stuffs...\n")
-		default:
-			// ignore the gibberish
+		kc, err := jokkConfig.kafkaConfig.kafkaConsumerConf()
+		if err != nil {
+			log.Panic("cannot create kafka consumer config")
 		}
+		hosts := []string{jokkConfig.KafkaSettings["local"].Host} // FIXME : should not be hard coded
+		client := kafka.NewKafkaClient(log, hosts, kc)
+		defer client.Close()
+
+		var topicsInfo []TopicInfo
+		topics, err := client.Topics()
+		for _, topic := range topics {
+			// FIXME : there has to be a better way to filter out private topics
+			if !strings.Contains(topic, "__") {
+				var partitionsInfo []PartitionInfo
+				partitions, _ := client.Partitions(topic)
+				totalMsgCount := 0
+				for c, p := range partitions {
+					oo, _ := client.GetOffset(topic, p, sarama.OffsetOldest)
+					on, _ := client.GetOffset(topic, p, sarama.OffsetNewest)
+					msgCount := int(on) - int(oo)
+					totalMsgCount += msgCount
+					partitionsInfo = append(partitionsInfo, PartitionInfo{
+						id:                c,
+						oldOffset:         int(oo),
+						newOffset:         int(on),
+						partitionMsgCount: msgCount,
+					})
+				}
+				topicsInfo = append(topicsInfo, TopicInfo{
+					name:          topic,
+					partitions:    partitionsInfo,
+					totalMsgCount: totalMsgCount,
+				})
+			}
+		}
+		log.Infof("\n%s", CreateTopicTable(topicsInfo))
+	default:
+		log.Error("no command provided - exiting")
+		os.Exit(0)
 	}
 
-	log.Info("bye!")
+	/*
+		reader := bufio.NewReader(os.Stdin)
+		loop := true
+		for loop {
+			in, _ := reader.ReadString('\n')
+			switch strings.Replace(strings.ToUpper(in), "\n", "", 1) {
+			case "Q":
+				loop = false
+			case "H", "HELP":
+				log.Infof("look at the README for supported commands or type 'q' to exit")
+			case "LIST":
+				log.Infof("listing Kafka stuffs...\n")
+			default:
+				// ignore the gibberish
+			}
+		}
+	*/
 }
 
 func (jc *JokkConfig) loadFromFile(file string) error {
