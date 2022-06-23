@@ -24,7 +24,35 @@ func CreateTableRow(values []string) (cells []*simpletable.Cell) {
 	return cells
 }
 
-func CreateTopicTable(topicsInfo []TopicInfo) string {
+func CreateTopicOverviewTable(topicsInfo []TopicOverviewInfo) string {
+	table := simpletable.New()
+	table.Header = CreateTableHeader([]string{
+		"#",
+		"TOPIC",
+		"NUMBER MESSAGES",
+		"NUMBER PARTITIONS",
+		"REPLICATION FACTOR",
+	})
+
+	sort.Slice(topicsInfo, func(i, j int) bool {
+		return topicsInfo[i].name < topicsInfo[j].name
+	})
+
+	for c, ti := range topicsInfo {
+		row := CreateTableRow([]string{
+			fmt.Sprintf("%d", c+1),
+			ti.name,
+			fmt.Sprintf("%d", ti.numberMessages),
+			fmt.Sprintf("%d", ti.numberPartitions),
+			fmt.Sprintf("%d", ti.replicationFactor),
+		})
+		table.Body.Cells = append(table.Body.Cells, row)
+	}
+
+	return table.String()
+}
+
+func CreateTopicDetailsTable(topicsInfo []TopicDetailInfo) string {
 	table := simpletable.New()
 	table.Header = CreateTableHeader([]string{
 		"#",
@@ -42,8 +70,17 @@ func CreateTopicTable(topicsInfo []TopicInfo) string {
 
 	for c, ti := range topicsInfo {
 		partitions := ti.partitions
+		if len(partitions) == 0 {
+			// create default info for partition 0
+			partitions = append(partitions, PartitionInfo{
+				id:                1,
+				oldOffset:         0,
+				newOffset:         0,
+				partitionMsgCount: 0,
+			})
+		}
 		topRow := CreateTableRow([]string{
-			fmt.Sprintf("%d", c),
+			fmt.Sprintf("%d", c+1),
 			ti.name,
 			fmt.Sprintf("%d", partitions[0].id),
 			fmt.Sprintf("[%d - %d]", partitions[0].oldOffset, partitions[0].newOffset),
