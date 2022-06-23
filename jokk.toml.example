@@ -2,6 +2,13 @@
 # Copy this file over to `jokk.toml` and fill in the blanks as necessary
 
 [kafka]
+    # example of how to connect to a local running Kafka (e.g. in Docker)    
     [kafka.local]
     host = "localhost:9092"
 
+    # example of how to connect to a remote running Kafka
+    [kafka.remote]
+    host = ""
+    username = ""
+    password = ""
+    algorithm = "plain"

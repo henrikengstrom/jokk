@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
@@ -28,14 +29,17 @@ var (
 
 type Args struct {
 	Version               bool       `short:"v" long:"version" description:"Display version information and exit"`
-	CredentialsConfigFile string     `short:"f" long:"credentials-file" default:"./jokk.toml"`
+	Environment           string     `short:"e" long:"environment" description:"Dictates what configuration settings to use" default:"local"`
+	CredentialsConfigFile string     `short:"c" long:"credentials-file" default:"./jokk.toml"`
+	Filter                string     `short:"f" long:"filter" description:"Apply filter to output"`
 	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
 }
 
 type KafkaSettings struct {
-	Host     string `toml:"host"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
+	Host      string `toml:"host"`
+	Username  string `toml:"username"`
+	Password  string `toml:"password"`
+	Algorithm string `toml:algorithm`
 }
 
 type JokkConfig struct {
@@ -50,7 +54,16 @@ type PartitionInfo struct {
 	partitionMsgCount int
 }
 
-type TopicInfo struct {
+type TopicOverviewInfo struct {
+	name              string
+	numberMessages    int64
+	numberPartitions  int32
+	replicationFactor int16
+	replicaAssignment map[int32][]int32
+	configEntries     map[string]*string
+}
+
+type TopicDetailInfo struct {
 	name          string
 	partitions    []PartitionInfo
 	totalMsgCount int
@@ -102,42 +115,93 @@ func main() {
 		if err != nil {
 			log.Panic("cannot create kafka consumer config")
 		}
-		hosts := []string{jokkConfig.KafkaSettings["local"].Host} // FIXME : should not be hard coded
-		client := kafka.NewKafkaClient(log, hosts, kc)
-		defer client.Close()
 
-		var topicsInfo []TopicInfo
-		topics, err := client.Topics()
-		for _, topic := range topics {
-			// FIXME : there has to be a better way to filter out private topics
-			if !strings.Contains(topic, "__") {
-				var partitionsInfo []PartitionInfo
-				partitions, _ := client.Partitions(topic)
-				totalMsgCount := 0
-				for c, p := range partitions {
-					oo, _ := client.GetOffset(topic, p, sarama.OffsetOldest)
-					on, _ := client.GetOffset(topic, p, sarama.OffsetNewest)
-					msgCount := int(on) - int(oo)
-					totalMsgCount += msgCount
-					partitionsInfo = append(partitionsInfo, PartitionInfo{
-						id:                c,
-						oldOffset:         int(oo),
-						newOffset:         int(on),
-						partitionMsgCount: msgCount,
-					})
-				}
-				topicsInfo = append(topicsInfo, TopicInfo{
-					name:          topic,
-					partitions:    partitionsInfo,
-					totalMsgCount: totalMsgCount,
-				})
+		log.Infof("running settings for environment: %s", args.Environment)
+		kafkaSettings := jokkConfig.KafkaSettings[args.Environment]
+
+		if args.Environment != "local" {
+			kc, err = kafka.EnableSasl(log,
+				kc,
+				kafkaSettings.Username,
+				kafkaSettings.Password,
+				kafkaSettings.Algorithm,
+				true,
+				true) // FIXME : don't use hard-coded values
+			if err != nil {
+				log.Panicf("cannot create kafka consumer config for environment: %s", args.Environment)
 			}
 		}
-		log.Infof("\n%s", CreateTopicTable(topicsInfo))
+
+		log.Infof("calling host: %s", kafkaSettings.Host)
+		client := kafka.NewKafkaClient(log, []string{kafkaSettings.Host}, kc)
+		defer client.Close()
+		admin, err := sarama.NewClusterAdminFromClient(client)
+		defer admin.Close()
+		if err != nil {
+			log.Panicf("cannot create cluster admin: %v", err)
+		}
+
+		adminTopics, _ := admin.ListTopics()
+		log.Infof("found %d total topics - applying filter '%s' and retrieving details", len(adminTopics), args.Filter)
+		topicsInfo := []TopicOverviewInfo{}
+		var wg sync.WaitGroup
+		for topic, topicDetailInfo := range adminTopics {
+			if strings.Contains(topic, args.Filter) {
+				wg.Add(1)
+				go func(t string, td sarama.TopicDetail) {
+					messageCount := kafka.CountMessagesInTopic(client, t)
+					topicsInfo = append(topicsInfo, TopicOverviewInfo{
+						name:              t,
+						numberMessages:    messageCount,
+						numberPartitions:  td.NumPartitions,
+						replicationFactor: td.ReplicationFactor,
+						replicaAssignment: td.ReplicaAssignment,
+						configEntries:     td.ConfigEntries,
+					})
+					wg.Done()
+				}(topic, topicDetailInfo)
+			}
+		}
+		wg.Wait()
+
+		//var topicsInfo []TopicInfo
+		//topics, err := client.Topics()
+
+		/*
+			for _, topic := range topics {
+				// FIXME : there has to be a better way to filter out private topics
+				if !strings.Contains(topic, "__") {
+					partitionsInfo := []PartitionInfo{}
+					totalMsgCount := 0
+						partitions, _ := client.Partitions(topic)
+						for c, p := range partitions {
+							oo, _ := client.GetOffset(topic, p, sarama.OffsetOldest)
+							on, _ := client.GetOffset(topic, p, sarama.OffsetNewest)
+							msgCount := int(on) - int(oo)
+							totalMsgCount += msgCount
+							partitionsInfo = append(partitionsInfo, PartitionInfo{
+								id:                c,
+								oldOffset:         int(oo),
+								newOffset:         int(on),
+								partitionMsgCount: msgCount,
+							})
+						}
+					topicsInfo = append(topicsInfo, TopicInfo{
+						name:          topic,
+						partitions:    partitionsInfo,
+						totalMsgCount: totalMsgCount,
+					})
+				}
+			}
+		*/
+		log.Infof("\n%s", CreateTopicOverviewTable(topicsInfo))
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
 	}
+
+	// TO CLEAR SCREEN
+	// fmt.Print("\033[H\033[2J")
 
 	/*
 		reader := bufio.NewReader(os.Stdin)
