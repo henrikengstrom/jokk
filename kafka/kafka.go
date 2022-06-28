@@ -4,11 +4,57 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"os"
+	"sort"
 	"sync"
 
 	"github.com/Shopify/sarama"
 	"github.com/henrikengstrom/jokk/common"
 )
+
+type PartitionCountInfo struct {
+	TotalMessageCount int64
+	Partitions        []PartitionInfo
+}
+
+type PartitionInfo struct {
+	Id                int
+	OldOffset         int
+	NewOffset         int
+	PartitionMsgCount int
+}
+
+type GeneralTopicInfo struct {
+	Name              string
+	NumberMessages    int64
+	ReplicationFactor int16
+	ReplicaAssignment map[int32][]int32
+	ConfigEntries     map[string]*string
+	NumberPartitions  int32
+}
+
+type TopicInfo struct {
+	GeneralTopicInfo GeneralTopicInfo
+	PartitionsInfo   []PartitionInfo
+}
+
+type PartitionDetailInfo struct {
+	PartitionInfo   PartitionInfo
+	Leader          int32
+	Replicas        []int32
+	Isr             []int32
+	OfflineReplicas []int32
+}
+
+type PartitionDetailCountInfo struct {
+	TotalMessageCount int64
+	Partitions        []PartitionDetailInfo
+}
+
+type TopicDetailInfo struct {
+	GeneralTopicInfo    GeneralTopicInfo
+	PartionDetailedInfo []PartitionDetailInfo
+}
 
 func DefaultConsumerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *sarama.Config {
 	conf := sarama.NewConfig()
@@ -65,40 +111,91 @@ func EnableSasl(
 	return conf, nil
 }
 
-func CountMessagesInTopic(client sarama.Client, topic string) int64 {
+const (
+	OldestOffset = int64(-2)
+)
+
+/*
+ * Set 'time' to OldestOffset to use the default time range when calculating messages/partitions.
+ * Set time to get the most recent available offset at the given time (in milliseconds.)
+ */
+func PartitionMessageCount(client sarama.Client, topic string, timestamp int64) PartitionCountInfo {
 	totalMsgCount := int64(0)
 	partitions, _ := client.Partitions(topic)
 	var wg sync.WaitGroup
 	wg.Add(len(partitions))
+	var partitionsInfo []PartitionInfo
 	for _, partition := range partitions {
 		go func(p int32) {
-			offset := func(time int64, r chan int64) {
-				c, _ := client.GetOffset(topic, p, time)
-				r <- c
+			var oldest, newest int64
+			if timestamp == OldestOffset {
+				oldest, _ = client.GetOffset(topic, p, sarama.OffsetOldest)
+			} else {
+				oldest, _ = client.GetOffset(topic, p, timestamp)
 			}
-			result := make(chan int64, 2)
-			go offset(sarama.OffsetOldest, result)
-			go offset(sarama.OffsetNewest, result)
-			x := int64(-1)
-			for {
-				select {
-				case y := <-result:
-					if x == -1 {
-						x = y
-					} else {
-						// crude abs function
-						if x < y {
-							totalMsgCount += y - x
-						} else {
-							totalMsgCount += x - y
-						}
-						wg.Done()
-						return
-					}
-				}
+			newest, _ = client.GetOffset(topic, p, sarama.OffsetNewest)
+			var count int64
+			if oldest == -1 {
+				// if -1 is returned this means no offset was found for the time period
+				count = 0
+			} else {
+				count = newest - oldest
 			}
+
+			totalMsgCount += count
+			partitionsInfo = append(partitionsInfo, PartitionInfo{
+				Id:                int(p),
+				OldOffset:         int(oldest),
+				NewOffset:         int(newest),
+				PartitionMsgCount: int(count),
+			})
+			wg.Done()
+
 		}(partition)
 	}
 	wg.Wait()
-	return totalMsgCount
+	return PartitionCountInfo{
+		TotalMessageCount: totalMsgCount,
+		Partitions:        partitionsInfo,
+	}
+}
+
+type PartitionChannelInfo struct {
+	topic string
+	pci   PartitionCountInfo
+}
+
+func DetailedPartitionInfo(admin sarama.ClusterAdmin, client sarama.Client, topic string) PartitionDetailCountInfo {
+	tms, _ := admin.DescribeTopics([]string{topic})
+	tm := tms[0]
+	pci := PartitionMessageCount(client, topic, OldestOffset)
+	var pcis PartitionDetailCountInfo
+
+	// Sort partitions in both collections so we can just iterate over them to retrieve the info needed
+	if len(pci.Partitions) != len(tm.Partitions) {
+		fmt.Printf("have inconsistent data - gotta bail!\n")
+		os.Exit(1)
+	}
+	sort.Slice(pci.Partitions, func(i, j int) bool {
+		return pci.Partitions[i].Id < pci.Partitions[j].Id
+	})
+	sort.Slice(tm.Partitions, func(i, j int) bool {
+		return tm.Partitions[i].ID < tm.Partitions[j].ID
+	})
+	var pdis []PartitionDetailInfo
+	for i := 0; i < len(tm.Partitions); i++ {
+		pdis = append(pdis, PartitionDetailInfo{
+			PartitionInfo:   pci.Partitions[i],
+			Leader:          tm.Partitions[i].Leader,
+			Replicas:        tm.Partitions[i].Replicas,
+			Isr:             tm.Partitions[i].Isr,
+			OfflineReplicas: tm.Partitions[i].OfflineReplicas,
+		})
+	}
+	pcis = PartitionDetailCountInfo{
+		TotalMessageCount: pci.TotalMessageCount,
+		Partitions:        pdis,
+	}
+
+	return pcis
 }
