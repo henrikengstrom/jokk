@@ -5,105 +5,200 @@ import (
 	"sort"
 
 	"github.com/alexeyco/simpletable"
+	"github.com/henrikengstrom/jokk/kafka"
 )
 
-func CreateTableHeader(headers []string) *simpletable.Header {
-	cells := CreateTableRow(headers)
+const (
+	ColorDefault   = "\x1b[39m"
+	ColorAlternate = "\x1b[94m"
+)
+
+func CreateTableHeader(headers []string, alignment int) *simpletable.Header {
+	cells := CreateTableRow(headers, alignment)
 	return &simpletable.Header{
 		Cells: cells,
 	}
 }
 
-func CreateTableRow(values []string) (cells []*simpletable.Cell) {
+func CreateTableRow(values []string, alignment int) (cells []*simpletable.Cell) {
 	for _, h := range values {
 		c := &simpletable.Cell{
-			Align: simpletable.AlignRight, Text: h,
+			Align: alignment, Text: h,
 		}
 		cells = append(cells, c)
 	}
 	return cells
 }
 
-func CreateTopicOverviewTable(topicsInfo []TopicOverviewInfo) string {
+func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 	table := simpletable.New()
-	table.Header = CreateTableHeader([]string{
-		"#",
-		"TOPIC",
-		"NUMBER MESSAGES",
-		"NUMBER PARTITIONS",
-		"REPLICATION FACTOR",
-	})
-
+	headers := []string{}
+	if verbose {
+		headers = []string{
+			"#",
+			"TOPIC",
+			"NUMBER MESSAGES",
+			"NUMBER PARTITIONS",
+			"REPLICATION FACTOR",
+			"PARTITION ID",
+			"PARTITION OFFSETS [OLD - NEW]",
+			"PARTITION MESSAGES",
+			"PARTITION % DISTRIBUTION",
+		}
+	} else {
+		headers = []string{
+			"#",
+			"TOPIC",
+			"NUMBER MESSAGES",
+			"NUMBER PARTITIONS",
+			"REPLICATION FACTOR",
+		}
+	}
+	table.Header = CreateTableHeader(headers, simpletable.AlignCenter)
 	sort.Slice(topicsInfo, func(i, j int) bool {
-		return topicsInfo[i].name < topicsInfo[j].name
+		return topicsInfo[i].GeneralTopicInfo.Name < topicsInfo[j].GeneralTopicInfo.Name
 	})
 
+	count := 1
 	for c, ti := range topicsInfo {
-		row := CreateTableRow([]string{
-			fmt.Sprintf("%d", c+1),
-			ti.name,
-			fmt.Sprintf("%d", ti.numberMessages),
-			fmt.Sprintf("%d", ti.numberPartitions),
-			fmt.Sprintf("%d", ti.replicationFactor),
-		})
-		table.Body.Cells = append(table.Body.Cells, row)
+		rows := []string{}
+		if verbose {
+			rows = []string{
+				fmt.Sprintf("%d", c+1),
+				ti.GeneralTopicInfo.Name,
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberMessages),
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberPartitions),
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.ReplicationFactor),
+				"",
+				"",
+				"",
+				"",
+			}
+			table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+
+			// Sort the partitions
+			sort.Slice(ti.PartitionsInfo, func(i, j int) bool {
+				return ti.PartitionsInfo[i].Id < ti.PartitionsInfo[j].Id
+			})
+			for _, pi := range ti.PartitionsInfo {
+				percentDistribution := 0.0
+				if ti.GeneralTopicInfo.NumberMessages > 0 && pi.PartitionMsgCount > 0 {
+					percentDistribution = float64(pi.PartitionMsgCount) / float64(ti.GeneralTopicInfo.NumberMessages) * 100
+				}
+				rows = []string{
+					"",
+					"",
+					"",
+					"",
+					"",
+					fmt.Sprintf("%d", pi.Id),
+					fmt.Sprintf("[%d - %d]", pi.OldOffset, pi.NewOffset),
+					fmt.Sprintf("%d", pi.PartitionMsgCount),
+					fmt.Sprintf("%.2f", percentDistribution),
+				}
+				// elaborate color scheme :)
+				if count%2 == 0 {
+					for c, r := range rows {
+						rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
+					}
+				}
+
+				table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+			}
+		} else {
+			rows = []string{
+				fmt.Sprintf("%d", c+1),
+				ti.GeneralTopicInfo.Name,
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberMessages),
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberPartitions),
+				fmt.Sprintf("%d", ti.GeneralTopicInfo.ReplicationFactor),
+			}
+			// elaborate color scheme :)
+			if count%2 == 0 {
+				for c, r := range rows {
+					rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
+				}
+			}
+			table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+		}
+		count++
 	}
 
 	return table.String()
 }
 
-func CreateTopicDetailsTable(topicsInfo []TopicDetailInfo) string {
+func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCount24h int64, msgCount1h int64, msgCount1m int64) string {
 	table := simpletable.New()
-	table.Header = CreateTableHeader([]string{
-		"#",
+	headers := []string{
 		"TOPIC",
-		"PARTITION #",
-		"PARTITION OFFSETS [OLD - NEW]",
-		"PARTITION MESSAGES",
-		"TOTAL MESSAGES",
-	})
+		"MSGS",
+		"PARTITIONS",
+		"REPL FACTOR",
+		"P ID",
+		"P OFFSETS [OLD - NEW]",
+		"P MSGS",
+		"P % DISTR",
+		"LEADER",
+		"REPLICAS",
+		"ISR",
+		"MSGS 24h",
+		"MSGS 1h",
+		"MSGS 1m",
+	}
+	table.Header = CreateTableHeader(headers, simpletable.AlignCenter)
 
-	// Sort 'em topics alphabetically
-	sort.Slice(topicsInfo, func(i, j int) bool {
-		return topicsInfo[i].name < topicsInfo[j].name
-	})
-
-	for c, ti := range topicsInfo {
-		partitions := ti.partitions
-		if len(partitions) == 0 {
-			// create default info for partition 0
-			partitions = append(partitions, PartitionInfo{
-				id:                1,
-				oldOffset:         0,
-				newOffset:         0,
-				partitionMsgCount: 0,
-			})
+	rows := []string{
+		tdi.GeneralTopicInfo.Name,
+		fmt.Sprintf("%d", tdi.GeneralTopicInfo.NumberMessages),
+		fmt.Sprintf("%d", tdi.GeneralTopicInfo.NumberPartitions),
+		fmt.Sprintf("%d", tdi.GeneralTopicInfo.ReplicationFactor),
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+	}
+	table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+	count := 1
+	for _, pdi := range tdi.PartionDetailedInfo {
+		percentDistribution := 0.0
+		if tdi.GeneralTopicInfo.NumberMessages > 0 && pdi.PartitionInfo.PartitionMsgCount > 0 {
+			percentDistribution = float64(pdi.PartitionInfo.PartitionMsgCount) / float64(tdi.GeneralTopicInfo.NumberMessages) * 100
 		}
-		topRow := CreateTableRow([]string{
-			fmt.Sprintf("%d", c+1),
-			ti.name,
-			fmt.Sprintf("%d", partitions[0].id),
-			fmt.Sprintf("[%d - %d]", partitions[0].oldOffset, partitions[0].newOffset),
-			fmt.Sprintf("%d", partitions[0].partitionMsgCount),
-			fmt.Sprintf("%d", ti.totalMsgCount),
-		})
-		table.Body.Cells = append(table.Body.Cells, topRow)
+		msg24hCount := msgCount24h
+		msg1hCount := msgCount1h
+		msg1mCount := msgCount1m
+		rows = []string{
+			"",
+			"",
+			"",
+			"",
+			fmt.Sprintf("%d", pdi.PartitionInfo.Id),
+			fmt.Sprintf("[%d - %d]", pdi.PartitionInfo.OldOffset, pdi.PartitionInfo.NewOffset),
+			fmt.Sprintf("%d", pdi.PartitionInfo.PartitionMsgCount),
+			fmt.Sprintf("%.2f", percentDistribution),
+			fmt.Sprintf("%d", pdi.Leader),
+			fmt.Sprintf("%v", pdi.Replicas),
+			fmt.Sprintf("%v", pdi.Isr),
+			fmt.Sprintf("%d", msg24hCount),
+			fmt.Sprintf("%d", msg1hCount),
+			fmt.Sprintf("%d", msg1mCount),
+		}
 
-		if len(partitions) > 1 {
-			for i := 1; i < len(partitions); i++ {
-				p := partitions[i]
-				table.Body.Cells = append(table.Body.Cells,
-					CreateTableRow([]string{
-						"",
-						"",
-						fmt.Sprintf("%d", p.id),
-						fmt.Sprintf("[%d - %d]", p.oldOffset, p.newOffset),
-						fmt.Sprintf("%d", p.partitionMsgCount),
-						"",
-					}))
+		// elaborate color scheme :)
+		if count%2 == 0 {
+			for c, r := range rows {
+				rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
 			}
 		}
-	}
 
+		count++
+		table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+	}
 	return table.String()
 }
