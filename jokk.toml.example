@@ -5,10 +5,15 @@
     # example of how to connect to a local running Kafka (e.g. in Docker)    
     [kafka.local]
     host = "localhost:9092"
+    enable_sasl = false
 
     # example of how to connect to a remote running Kafka
+    # note: this connection is referred to as "remote", i.e. "-e remote" on the command line
+    # it's possible to add more connections with unique names
     [kafka.remote]
     host = ""
+    enable_sasl = true
     username = ""
     password = ""
-    algorithm = "plain"
+    # available algorithms: plain, sha256, sha512
+    algorithm = "plain" 
