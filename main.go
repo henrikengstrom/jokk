@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
@@ -20,19 +17,22 @@ import (
 
 type Args struct {
 	CredentialsConfigFile string     `short:"c" long:"credentials-file" description:"File that contains the credentials" default:"./jokk.toml"`
-	Environment           string     `short:"e" long:"environment" description:"Dictates what configuration settings to use" default:"local"`
+	Environment           string     `short:"e" long:"environment" description:"Dictates what configuration settings to use (from the jokk.toml file)"`
 	Filter                string     `short:"f" long:"filter" description:"Apply filter to output"`
 	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
-	TopicInfo             JokkConfig `command:"topicInfo" description:"TopicInfo (use -f/filter to provide info about what topic(s))"`
+	TopicInfo             JokkConfig `command:"topicInfo" description:"Detailed topic info (use -f/filter to determine topic(s))"`
+	AddTopic              JokkConfig `command:"addTopic" description:"Add a topic to the Kafka cluster"`
+	DeleteTopic           JokkConfig `command:"deleteTopic" description:"Delete a topic from the Kafka cluster (use -f/filter to determine topic)"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
 	Mode                  string     `short:"m" long:"mode" description:"Type of mode to run in; logmode (default) or screenmode" default:"logmode"`
 }
 
 type KafkaSettings struct {
-	Host      string `toml:"host"`
-	Username  string `toml:"username"`
-	Password  string `toml:"password"`
-	Algorithm string `toml:algorithm`
+	Host       string `toml:"host"`
+	EnableSasl bool   `toml:"enable_sasl"`
+	Username   string `toml:"username"`
+	Password   string `toml:"password"`
+	Algorithm  string `toml:"algorithm"`
 }
 
 type JokkConfig struct {
@@ -76,7 +76,7 @@ func main() {
 	log.Infof("running settings for environment: %s", args.Environment)
 	kafkaSettings := jokkConfig.KafkaSettings[args.Environment]
 
-	if args.Environment != "local" {
+	if kafkaSettings.EnableSasl {
 		kc, err = kafka.EnableSasl(log,
 			kc,
 			kafkaSettings.Username,
@@ -85,7 +85,7 @@ func main() {
 			true,
 			true) // FIXME : don't use hard-coded values
 		if err != nil {
-			log.Panicf("cannot create kafka consumer config for environment: %s", args.Environment)
+			log.Panicf("cannot create kafka consumer config for environment: %s : %v", args.Environment, err)
 		}
 	}
 
@@ -106,11 +106,11 @@ func main() {
 		}
 		listTopics(log, admin, client, args)
 	case "topicInfo":
-		if args.Filter == "" {
-			log.Error("cannot show topic info without any filter information as to what topic to use")
-			os.Exit(1)
-		}
 		topicInfo(log, admin, client, args)
+	case "addTopic":
+		addTopic(log, admin, client, args)
+	case "deleteTopic":
+		deleteTopic(log, admin, client, args)
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
@@ -136,13 +136,9 @@ func main() {
 }
 
 func (jc *JokkConfig) loadFromFile(file string) error {
-	if file == "" {
-		return fmt.Errorf("error: you must have a value for 'credentials-config-file'")
-	}
-
 	fp, err := hd.Expand(file)
 	if err != nil {
-		return fmt.Errorf("error: could not expand path(%s) to blob config file: %v", file, err)
+		return fmt.Errorf("error: could not expand path(%s) to config file: %v", file, err)
 	}
 
 	_, err = toml.DecodeFile(fp, jc)
@@ -191,49 +187,8 @@ func listTopics(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	// Count topics matching the filter
-	hits := 0
-	var topicName string
-	var topicDetail sarama.TopicDetail
-	filteredTopics := make(map[string]sarama.TopicDetail)
-	for t, td := range topics {
-		if strings.Contains(t, args.Filter) {
-			hits += 1
-			filteredTopics[t] = td
-		}
-	}
-
-	filteredKeys := make([]string, 0, len(filteredTopics))
-	for k := range filteredTopics {
-		filteredKeys = append(filteredKeys, k)
-	}
-	sort.Slice(filteredKeys, func(i, j int) bool {
-		return filteredKeys[i] < filteredKeys[j]
-	})
-
-	if hits == 0 {
-		log.Infof("could not find any topics matching the filter: %s", args.Filter)
-	} else if hits > 1 {
-		log.Infof("found more than one topic [%d] matching the filter: %s - pick a number to continue:", hits, args.Filter)
-		for c, t := range filteredKeys {
-			log.Infof("%d: %s", c+1, t)
-		}
-		log.Infof("0: exit")
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.Replace(answer, "\n", "", -1)
-		if strings.ToUpper(answer) == "0" {
-			os.Exit(0)
-		}
-		intAnswer, err := strconv.Atoi(answer)
-		if err != nil || intAnswer < 1 || intAnswer > hits {
-			log.Infof("Invalid number: %s - exiting", answer)
-			os.Exit(0)
-		}
-
-		topicName = filteredKeys[intAnswer-1]
-		topicDetail = filteredTopics[topicName]
-	}
-
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, topicDetail := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
 	pdci := kafka.DetailedPartitionInfo(admin, client, topicName)
 	topicsDetailInfo := kafka.TopicDetailInfo{
 		GeneralTopicInfo: kafka.GeneralTopicInfo{
@@ -247,52 +202,48 @@ func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.C
 		PartionDetailedInfo: pdci.Partitions,
 	}
 
-	msgCount24h, msgCount1h, msgCount1m := timeBasedPartitionCount(client, topicName)
+	msgCount24h, msgCount1h, msgCount1m := kafka.TimeBasedPartitionCount(client, topicName)
 	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCount24h, msgCount1h, msgCount1m))
 
 }
 
-func timeBasedPartitionCount(client sarama.Client, topic string) (int64, int64, int64) {
-	// Retrieve some time specific counts
-	type Result struct {
-		topic        string
-		id           string
-		messageCount int64
+func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+	log.Infof("topic creation process (enter 0 to exit)")
+	topicName := dialogue("enter topic name")
+	numPartitionsStr := dialogue("number of partitions")
+	numPartitions, err := strconv.Atoi(numPartitionsStr)
+	if err != nil {
+		log.Infof("cannot convert %s to a number - exiting", numPartitionsStr)
+		os.Exit(1)
 	}
-	now := time.Now()
-	results := make(chan Result, 3)
-	getCount := func(r chan Result, t string, id string, time int64) {
-		pmc := kafka.PartitionMessageCount(client, t, time)
-		r <- Result{
-			topic:        t,
-			id:           id,
-			messageCount: pmc.TotalMessageCount,
-		}
+	replicationFactorStr := dialogue("replication factor")
+	replicationFactor, err := strconv.Atoi(replicationFactorStr)
+	if err != nil {
+		log.Infof("cannot convert %s to a number - exiting", numPartitionsStr)
+		os.Exit(1)
 	}
 
-	var msgCount24h, msgCount1h, msgCount1m int64
-	go getCount(results, topic, "24h", now.Add(-24*time.Hour).UnixMilli())
-	go getCount(results, topic, "1h", now.Add(-1*time.Hour).UnixMilli())
-	go getCount(results, topic, "1m", now.Add(-1*time.Minute).UnixMilli())
-
-	counts := 0
-ResultsLabel:
-	for {
-		select {
-		case r := <-results:
-			counts++
-			if r.id == "24h" {
-				msgCount24h = r.messageCount
-			} else if r.id == "1h" {
-				msgCount1h = r.messageCount
-			} else {
-				msgCount1m = r.messageCount
-			}
-			if counts >= 3 {
-				break ResultsLabel
-			}
-		}
+	err = admin.CreateTopic(topicName, &sarama.TopicDetail{
+		NumPartitions:     int32(numPartitions),
+		ReplicationFactor: int16(replicationFactor),
+		ReplicaAssignment: map[int32][]int32{},
+		ConfigEntries:     map[string]*string{},
+	}, false)
+	if err != nil {
+		log.Errorf("Could not create topic %s - %v", topicName, err)
+	} else {
+		log.Infof("Topic %s created", topicName)
 	}
+}
 
-	return msgCount24h, msgCount1h, msgCount1m
+func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	err := admin.DeleteTopic(topicName)
+	if err != nil {
+		log.Errorf("Could not delete topic %s - %v", topicName, err)
+	} else {
+		log.Infof("Topic %s deleted", topicName)
+	}
 }

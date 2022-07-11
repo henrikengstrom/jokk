@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/henrikengstrom/jokk/common"
@@ -90,7 +91,6 @@ func EnableSasl(
 	algorithm string,
 	useTLS bool,
 	verifySSL bool) (*sarama.Config, error) {
-
 	conf.Net.SASL.Enable = true
 	conf.Net.SASL.User = username
 	conf.Net.SASL.Password = password
@@ -198,4 +198,49 @@ func DetailedPartitionInfo(admin sarama.ClusterAdmin, client sarama.Client, topi
 	}
 
 	return pcis
+}
+
+func TimeBasedPartitionCount(client sarama.Client, topic string) (int64, int64, int64) {
+	// Retrieve some time specific counts
+	type Result struct {
+		topic        string
+		id           string
+		messageCount int64
+	}
+	now := time.Now()
+	results := make(chan Result, 3)
+	getCount := func(r chan Result, t string, id string, time int64) {
+		pmc := PartitionMessageCount(client, t, time)
+		r <- Result{
+			topic:        t,
+			id:           id,
+			messageCount: pmc.TotalMessageCount,
+		}
+	}
+
+	var msgCount24h, msgCount1h, msgCount1m int64
+	go getCount(results, topic, "24h", now.Add(-24*time.Hour).UnixMilli())
+	go getCount(results, topic, "1h", now.Add(-1*time.Hour).UnixMilli())
+	go getCount(results, topic, "1m", now.Add(-1*time.Minute).UnixMilli())
+
+	counts := 0
+ResultsLabel:
+	for {
+		select {
+		case r := <-results:
+			counts++
+			if r.id == "24h" {
+				msgCount24h = r.messageCount
+			} else if r.id == "1h" {
+				msgCount1h = r.messageCount
+			} else {
+				msgCount1m = r.messageCount
+			}
+			if counts >= 3 {
+				break ResultsLabel
+			}
+		}
+	}
+
+	return msgCount24h, msgCount1h, msgCount1m
 }

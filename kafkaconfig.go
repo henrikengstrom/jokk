@@ -27,7 +27,7 @@ type kafkaConfig struct {
 func (k *kafkaConfig) validate(c map[string]KafkaSettings) error {
 	b := strings.TrimSpace(k.Brokers)
 	if len(b) == 0 {
-		return fmt.Errorf("error: --brokers is required")
+		return fmt.Errorf("the --brokers is required")
 	}
 	return nil
 }
