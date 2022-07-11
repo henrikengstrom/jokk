@@ -6,7 +6,7 @@ The work `jokk` or `jåkk` is oronounced as you would the word for an enthusiast
 
 ## Rationale
 
-I have been using Kafka for years and although there are tools to see what is happening inside of Kafka I wanted to build my own specific tool, that is free to use, and that provides the feature set that I am after. That plus I get to train my Golang programming skills. Two birds with one stone.
+I have been using Kafka for years and although there are tools to see what is happening inside of Kafka I wanted to build my own specific tool, that is free to use, and that provides the feature set that I am after. That plus I get to practice my Golang programming skills. Two birds with one stone.
 
 ## Getting started
 
