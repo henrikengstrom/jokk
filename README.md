@@ -1,6 +1,6 @@
 # Jokk
 
-[Jokk/Jåkk](https://en.wiktionary.org/wiki/jokk) is a basic Kafka inspection tools.
+[Jokk/Jåkk](https://en.wiktionary.org/wiki/jokk) is a basic Kafka inspection tool.
 
 The work `jokk` or `jåkk` is oronounced as you would the word for an enthusiast or participant in a specified activity (i.e. jock).
 
