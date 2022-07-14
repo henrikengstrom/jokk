@@ -23,6 +23,7 @@ type Args struct {
 	TopicInfo             JokkConfig `command:"topicInfo" description:"Detailed topic info (use -f/filter to determine topic(s))"`
 	AddTopic              JokkConfig `command:"addTopic" description:"Add a topic to the Kafka cluster"`
 	DeleteTopic           JokkConfig `command:"deleteTopic" description:"Delete a topic from the Kafka cluster (use -f/filter to determine topic)"`
+	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
 	Mode                  string     `short:"m" long:"mode" description:"Type of mode to run in; logmode (default) or screenmode" default:"logmode"`
 }
@@ -111,6 +112,8 @@ func main() {
 		addTopic(log, admin, client, args)
 	case "deleteTopic":
 		deleteTopic(log, admin, client, args)
+	case "clearTopic":
+		clearTopic(log, admin, client, args)
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
@@ -245,5 +248,22 @@ func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama
 		log.Errorf("Could not delete topic %s - %v", topicName, err)
 	} else {
 		log.Infof("Topic %s deleted", topicName)
+	}
+}
+
+func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	partitionInfo := kafka.DetailedPartitionInfo(admin, client, topicName)
+	offsets := make(map[int32]int64)
+	for _, pdi := range partitionInfo.Partitions {
+		offsets[int32(pdi.PartitionInfo.Id)] = int64(pdi.PartitionInfo.NewOffset)
+	}
+	err := admin.DeleteRecords(topicName, offsets)
+	if err != nil {
+		log.Errorf("Could not clear topic: %s - %v", topicName, err)
+	} else {
+		log.Infof("Messages have been cleared from topic: %s", topicName)
 	}
 }
