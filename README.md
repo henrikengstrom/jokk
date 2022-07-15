@@ -1,8 +1,12 @@
 # Jokk
 
-[Jokk/Jåkk](https://en.wiktionary.org/wiki/jokk) is a basic Kafka inspection tool.
+[Jokk/Jåkk](https://en.wiktionary.org/wiki/jokk) is a basic Kafka inspection tool. 
 
-The work `jokk` or `jåkk` is oronounced as you would the word for an enthusiast or participant in a specified activity (i.e. jock).
+The work `jokk` or `jåkk` is pronounced as you would the word for an enthusiast or participant in a specified activity (i.e. jock).
+
+Jokk means a river or stream in the Samic langague and the name is chosen for this tool since the aim is that it will provide an insight into the stream of data in Kafka.
+
+![](resources/jokk.jpg)
 
 ## Rationale
 
