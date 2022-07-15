@@ -51,6 +51,9 @@ func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDeta
 	var topicDetail sarama.TopicDetail
 	if hits == 0 {
 		log.Infof("could not find any topics matching the filter: %s", filter)
+	} else if hits == 1 {
+		topicName = filteredTopicNames[0]
+		topicDetail = filteredTopics[topicName]
 	} else if hits > 1 {
 		log.Infof("found more than one topic [%d] matching the filter: %s", hits, filter)
 		for c, t := range filteredTopicNames {
