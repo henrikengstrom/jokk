@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"os"
@@ -65,14 +64,6 @@ func DefaultConsumerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *s
 	conf.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
 	conf.Consumer.Offsets.Initial = sarama.OffsetOldest
 	return conf
-}
-
-func NewKafkaConsumer(log common.JokkLogger, brokers []string, config *sarama.Config, ctx context.Context) sarama.Consumer {
-	consumer, err := sarama.NewConsumer(brokers, config)
-	if err != nil {
-		log.Panicf("cannot connect to broker(s): %v => %s", brokers, err)
-	}
-	return consumer
 }
 
 func NewKafkaClient(log common.JokkLogger, brokers []string, config *sarama.Config) sarama.Client {

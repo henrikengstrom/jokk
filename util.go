@@ -12,12 +12,12 @@ import (
 	"github.com/henrikengstrom/jokk/common"
 )
 
-func dialogue(question string) string {
+func dialogue(question string, exitAnswer string) string {
 	fmt.Printf("%s: ", question)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	answer = strings.Replace(answer, "\n", "", -1)
-	if strings.ToUpper(answer) == "0" {
+	if strings.ToUpper(answer) == exitAnswer {
 		fmt.Println("leaving topic creation process")
 		os.Exit(0)
 	}
@@ -59,7 +59,7 @@ func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDeta
 		for c, t := range filteredTopicNames {
 			log.Infof("%d: %s", c+1, t)
 		}
-		answer := dialogue("pick a number (0 to exit)")
+		answer := dialogue("pick a number (0 to exit)", "0")
 		intAnswer, err := strconv.Atoi(answer)
 		if err != nil || intAnswer < 1 || intAnswer > hits {
 			log.Infof("Invalid number: %s - exiting", answer)
