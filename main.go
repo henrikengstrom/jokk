@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -269,25 +270,13 @@ func viewMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kaf
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
 	consumer.StartReceivingMessages(topicName)
+
+	start, end, err := parseTime(log, args.StartTime, args.EndTime)
+	if err != nil {
+		return
+	}
+
 	msgTicker := time.NewTicker(3 * time.Second)
-	start := time.Now().Add(-1 * 24 * 365 * 10 * time.Hour) // set start time to 10 years back to get all messages
-	end := time.Now().Add(1 * time.Minute)                  // if no end time is given we set it to the future to get all messages
-	if args.StartTime != "" {
-		s, err := time.ParseInLocation("2006-01-02 15:04:05", args.StartTime, time.Local)
-		if err != nil {
-			log.Errorf("Invalid start time format: %s - %v", args.StartTime, err)
-			return
-		}
-		start = s
-	}
-	if args.EndTime != "" {
-		e, err := time.ParseInLocation("2006-01-02 15:04:05", args.EndTime, time.Local)
-		if err != nil {
-			log.Errorf("Invalid end time format: %s - %v", args.EndTime, err)
-			return
-		}
-		end = e
-	}
 	log.Infof("Viewing messages from - to: %s - %s", args.StartTime, args.EndTime)
 Loop:
 	for {
@@ -308,5 +297,40 @@ Loop:
 }
 
 func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
-	log.Infof("MISSING IMPLEMENTATION BUT THIS WILL EVENTUALLY STORE MESSAGES TO DISC")
+	fileName := dialogue("Enter a file name to use (.json will automatically be added)", "X")
+	totalFileName := fmt.Sprintf("%s.json", fileName)
+	f, err := os.Create(totalFileName)
+	if err != nil {
+		log.Errorf("Could not create file: %s - %v", fileName, err)
+		return
+	}
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	consumer.StartReceivingMessages(topicName)
+	start, end, err := parseTime(log, args.StartTime, args.EndTime)
+	if err != nil {
+		return
+	}
+
+	msgTicker := time.NewTicker(1 * time.Second)
+
+Loop:
+	for {
+		select {
+		case <-msgTicker.C:
+			log.Infof("Did not find any (additional) message - exiting")
+			break Loop
+		case msg := <-consumer.MsgChannel:
+			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
+				b, _ := json.MarshalIndent(msg, "", "    ")
+				f.WriteString(string(b))
+				msgTicker = time.NewTicker(1 * time.Second)
+			}
+		}
+	}
+
+	log.Infof("Finished writing messages to file: %s", totalFileName)
+
+	f.Close()
 }

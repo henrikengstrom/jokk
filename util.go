@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/henrikengstrom/jokk/common"
@@ -71,4 +72,27 @@ func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDeta
 	}
 
 	return topicName, topicDetail
+}
+
+func parseTime(log common.JokkLogger, startArg string, endArg string) (time.Time, time.Time, error) {
+	start := time.Now().Add(-1 * 24 * 365 * 10 * time.Hour) // set start time to 10 years back to get all messages
+	end := time.Now().Add(1 * time.Minute)                  // if no end time is given we set it to the future to get all messages
+	if startArg != "" {
+		s, err := time.ParseInLocation("2006-01-02 15:04:05", startArg, time.Local)
+		if err != nil {
+			log.Errorf("Invalid start time format: %s - %v", startArg, err)
+			return time.Now(), time.Now(), err // FIXME: how to send back "nil" for time in case of an error
+		}
+		start = s
+	}
+	if endArg != "" {
+		e, err := time.ParseInLocation("2006-01-02 15:04:05", endArg, time.Local)
+		if err != nil {
+			log.Errorf("Invalid end time format: %s - %v", endArg, err)
+			return time.Now(), time.Now(), err
+		}
+		end = e
+	}
+
+	return start, end, nil
 }
