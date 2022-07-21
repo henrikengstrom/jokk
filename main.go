@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
@@ -17,13 +19,17 @@ import (
 
 type Args struct {
 	CredentialsConfigFile string     `short:"c" long:"credentials-file" description:"File that contains the credentials" default:"./jokk.toml"`
-	Environment           string     `short:"e" long:"environment" description:"Dictates what configuration settings to use (from the jokk.toml file)"`
-	Filter                string     `short:"f" long:"filter" description:"Apply filter to output"`
+	Environment           string     `short:"n" long:"environment" description:"Dictates what configuration settings to use (from the jokk.toml file)"`
+	Filter                string     `short:"f" long:"filter" description:"Apply filter to narrow search result"`
+	StartTime             string     `short:"s" long:"start-time" description:"Start time (not applicable to all commands)"`
+	EndTime               string     `short:"e" long:"end-time" description:"End time (not applicable to all commands)"`
 	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
 	TopicInfo             JokkConfig `command:"topicInfo" description:"Detailed topic info (use -f/filter to determine topic(s))"`
 	AddTopic              JokkConfig `command:"addTopic" description:"Add a topic to the Kafka cluster"`
 	DeleteTopic           JokkConfig `command:"deleteTopic" description:"Delete a topic from the Kafka cluster (use -f/filter to determine topic)"`
 	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
+	ViewMessages          JokkConfig `command:"viewMessages" description:"View messages in a topic (use -f/filter to determine topic)"`
+	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to disc (use -f/filter to determine topic)"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
 	Mode                  string     `short:"m" long:"mode" description:"Type of mode to run in; logmode (default) or screenmode" default:"logmode"`
 }
@@ -98,6 +104,11 @@ func main() {
 	if err != nil {
 		log.Panicf("cannot create cluster admin: %v", err)
 	}
+	consumer, err := kafka.NewConsumer(log, kafkaSettings.Host, kc)
+	if err != nil {
+		log.Panicf("cannot create cluster consumer group: %v", err)
+	}
+	defer consumer.Close()
 
 	switch parser.Active.Name {
 	case "listTopics":
@@ -114,28 +125,14 @@ func main() {
 		deleteTopic(log, admin, client, args)
 	case "clearTopic":
 		clearTopic(log, admin, client, args)
+	case "viewMessages":
+		viewMessages(log, admin, consumer, kc, args)
+	case "storeMessages":
+		storeMessages(log, admin, consumer, kc, args)
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
 	}
-
-	/*
-		reader := bufio.NewReader(os.Stdin)
-		loop := true
-		for loop {
-			in, _ := reader.ReadString('\n')
-			switch strings.Replace(strings.ToUpper(in), "\n", "", 1) {
-			case "Q":
-				loop = false
-			case "H", "HELP":
-				log.Infof("look at the README for supported commands or type 'q' to exit")
-			case "LIST":
-				log.Infof("listing Kafka stuffs...\n")
-			default:
-				// ignore the gibberish
-			}
-		}
-	*/
 }
 
 func (jc *JokkConfig) loadFromFile(file string) error {
@@ -212,14 +209,14 @@ func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.C
 
 func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	log.Infof("topic creation process (enter 0 to exit)")
-	topicName := dialogue("enter topic name")
-	numPartitionsStr := dialogue("number of partitions")
+	topicName := dialogue("enter topic name", "0")
+	numPartitionsStr := dialogue("number of partitions", "0")
 	numPartitions, err := strconv.Atoi(numPartitionsStr)
 	if err != nil {
 		log.Infof("cannot convert %s to a number - exiting", numPartitionsStr)
 		os.Exit(1)
 	}
-	replicationFactorStr := dialogue("replication factor")
+	replicationFactorStr := dialogue("replication factor", "0")
 	replicationFactor, err := strconv.Atoi(replicationFactorStr)
 	if err != nil {
 		log.Infof("cannot convert %s to a number - exiting", numPartitionsStr)
@@ -266,4 +263,74 @@ func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 	} else {
 		log.Infof("Messages have been cleared from topic: %s", topicName)
 	}
+}
+
+func viewMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	consumer.StartReceivingMessages(topicName)
+
+	start, end, err := parseTime(log, args.StartTime, args.EndTime)
+	if err != nil {
+		return
+	}
+
+	msgTicker := time.NewTicker(3 * time.Second)
+	log.Infof("Viewing messages from - to: %s - %s", args.StartTime, args.EndTime)
+Loop:
+	for {
+		select {
+		case <-msgTicker.C:
+			log.Infof("Did not find any message - exiting")
+			break Loop
+		case msg := <-consumer.MsgChannel:
+			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
+				log.Infof("[Time : Offset: Value] %v : %d : %v", msg.Timestamp, msg.Offset, msg.Value)
+				if dialogue("View another = enter (N to exit)", "N") == "N" {
+					break Loop
+				}
+				msgTicker = time.NewTicker(3 * time.Second)
+			}
+		}
+	}
+}
+
+func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
+	fileName := dialogue("Enter a file name to use (.json will automatically be added)", "X")
+	totalFileName := fmt.Sprintf("%s.json", fileName)
+	f, err := os.Create(totalFileName)
+	if err != nil {
+		log.Errorf("Could not create file: %s - %v", fileName, err)
+		return
+	}
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	consumer.StartReceivingMessages(topicName)
+	start, end, err := parseTime(log, args.StartTime, args.EndTime)
+	if err != nil {
+		return
+	}
+
+	msgTicker := time.NewTicker(1 * time.Second)
+
+Loop:
+	for {
+		select {
+		case <-msgTicker.C:
+			log.Infof("Did not find any (additional) message - exiting")
+			break Loop
+		case msg := <-consumer.MsgChannel:
+			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
+				b, _ := json.MarshalIndent(msg, "", "    ")
+				f.WriteString(string(b))
+				msgTicker = time.NewTicker(1 * time.Second)
+			}
+		}
+	}
+
+	log.Infof("Finished writing messages to file: %s", totalFileName)
+
+	f.Close()
 }
