@@ -191,25 +191,33 @@ func DetailedPartitionInfo(admin sarama.ClusterAdmin, client sarama.Client, topi
 	return pcis
 }
 
-func TimeBasedPartitionCount(client sarama.Client, topic string) (int64, int64, int64) {
+func TimeBasedPartitionCount(client sarama.Client, topic string) ([]int, []int, []int) {
 	// Retrieve some time specific counts
 	type Result struct {
-		topic        string
-		id           string
-		messageCount int64
+		topic                  string
+		id                     string
+		partitionMessagesCount []int
 	}
 	now := time.Now()
 	results := make(chan Result, 3)
 	getCount := func(r chan Result, t string, id string, time int64) {
 		pmc := PartitionMessageCount(client, t, time)
+		var counts []int
+		// Sort based on partition id to make the comparisons align between different time periods
+		sort.Slice(pmc.Partitions, func(i, j int) bool {
+			return pmc.Partitions[i].Id < pmc.Partitions[j].Id
+		})
+		for _, p := range pmc.Partitions {
+			counts = append(counts, p.PartitionMsgCount)
+		}
 		r <- Result{
-			topic:        t,
-			id:           id,
-			messageCount: pmc.TotalMessageCount,
+			topic:                  t,
+			id:                     id,
+			partitionMessagesCount: counts,
 		}
 	}
 
-	var msgCount24h, msgCount1h, msgCount1m int64
+	var msgCounts24h, msgCounts1h, msgCounts1m []int
 	go getCount(results, topic, "24h", now.Add(-24*time.Hour).UnixMilli())
 	go getCount(results, topic, "1h", now.Add(-1*time.Hour).UnixMilli())
 	go getCount(results, topic, "1m", now.Add(-1*time.Minute).UnixMilli())
@@ -221,11 +229,11 @@ ResultsLabel:
 		case r := <-results:
 			counts++
 			if r.id == "24h" {
-				msgCount24h = r.messageCount
+				msgCounts24h = r.partitionMessagesCount
 			} else if r.id == "1h" {
-				msgCount1h = r.messageCount
+				msgCounts1h = r.partitionMessagesCount
 			} else {
-				msgCount1m = r.messageCount
+				msgCounts1m = r.partitionMessagesCount
 			}
 			if counts >= 3 {
 				break ResultsLabel
@@ -233,5 +241,5 @@ ResultsLabel:
 		}
 	}
 
-	return msgCount24h, msgCount1h, msgCount1m
+	return msgCounts24h, msgCounts1h, msgCounts1m
 }
