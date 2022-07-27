@@ -127,7 +127,7 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 	return table.String()
 }
 
-func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCount24h int64, msgCount1h int64, msgCount1m int64) string {
+func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCounts24h []int, msgCounts1h []int, msgCounts1m []int) string {
 	table := simpletable.New()
 	headers := []string{
 		"TOPIC",
@@ -165,14 +165,14 @@ func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCount24h int64, msgCou
 	}
 	table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
 	count := 1
-	for _, pdi := range tdi.PartionDetailedInfo {
+	for i, pdi := range tdi.PartionDetailedInfo {
 		percentDistribution := 0.0
 		if tdi.GeneralTopicInfo.NumberMessages > 0 && pdi.PartitionInfo.PartitionMsgCount > 0 {
 			percentDistribution = float64(pdi.PartitionInfo.PartitionMsgCount) / float64(tdi.GeneralTopicInfo.NumberMessages) * 100
 		}
-		msg24hCount := msgCount24h
-		msg1hCount := msgCount1h
-		msg1mCount := msgCount1m
+		msg24hCount := msgCounts24h[i]
+		msg1hCount := msgCounts1h[i]
+		msg1mCount := msgCounts1m[i]
 		rows = []string{
 			"",
 			"",
