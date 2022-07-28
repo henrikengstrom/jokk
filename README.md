@@ -2,7 +2,7 @@
 
 [Jokk/Jåkk](https://en.wiktionary.org/wiki/jokk) is a basic Kafka inspection tool. 
 
-The work `jokk` or `jåkk` is pronounced as you would the word for an enthusiast or participant in a specified activity (i.e. jock).
+The word `jokk` or `jåkk` is pronounced as you would the word for an enthusiast or participant in a specified activity (i.e. jock).
 
 Jokk means a river or stream in the Samic langague and the name is chosen for this tool since the aim is that it will provide an insight into the stream of data in Kafka.
 
@@ -10,7 +10,7 @@ Jokk means a river or stream in the Samic langague and the name is chosen for th
 
 ## Rationale
 
-I have been using Kafka for years and although there are tools to see what is happening inside of Kafka I wanted to build my own specific tool, that is free to use, and that provides the feature set that I am after. That plus I get to practice my Golang programming skills. Two birds with one stone.
+I have been using Kafka for several years and although there are tools to inspect what is happening inside of Kafka I wanted to build a free-to-use tool that provides the feature set that I am after. That, plus I get to practice my Golang programming skills. Two birds with one stone.
 
 ## Getting started
 
