@@ -23,6 +23,7 @@ type Args struct {
 	Filter                string     `short:"f" long:"filter" description:"Apply filter to narrow search result"`
 	StartTime             string     `short:"s" long:"start-time" description:"Start time (not applicable to all commands)"`
 	EndTime               string     `short:"e" long:"end-time" description:"End time (not applicable to all commands)"`
+	RecordFormat          string     `short:"r" long:"record-format" description:"Formatting to apply when storing messages (JSON/raw)" default:"JSON"`
 	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
 	TopicInfo             JokkConfig `command:"topicInfo" description:"Detailed topic info (use -f/filter to determine topic(s))"`
 	AddTopic              JokkConfig `command:"addTopic" description:"Add a topic to the Kafka cluster"`
@@ -202,8 +203,8 @@ func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.C
 		PartionDetailedInfo: pdci.Partitions,
 	}
 
-	msgCount24h, msgCount1h, msgCount1m := kafka.TimeBasedPartitionCount(client, topicName)
-	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCount24h, msgCount1h, msgCount1m))
+	msgCounts24h, msgCounts1h, msgCounts1m := kafka.TimeBasedPartitionCount(client, topicName)
+	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCounts24h, msgCounts1h, msgCounts1m))
 
 }
 
@@ -296,13 +297,12 @@ Loop:
 	}
 }
 
-func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
-	fileName := dialogue("Enter a file name to use (.json will automatically be added)", "X")
-	totalFileName := fmt.Sprintf("%s.json", fileName)
-	f, err := os.Create(totalFileName)
+func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
+	fileName := dialogue("Enter a file name to use", "X")
+	f, err := os.Create(fileName)
 	if err != nil {
 		log.Errorf("Could not create file: %s - %v", fileName, err)
-		return
+		return err
 	}
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
@@ -310,7 +310,8 @@ func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer ka
 	consumer.StartReceivingMessages(topicName)
 	start, end, err := parseTime(log, args.StartTime, args.EndTime)
 	if err != nil {
-		return
+		log.Errorf("Could not parse time for file: %s - %v", fileName, err)
+		return err
 	}
 
 	msgTicker := time.NewTicker(1 * time.Second)
@@ -323,14 +324,19 @@ Loop:
 			break Loop
 		case msg := <-consumer.MsgChannel:
 			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
-				b, _ := json.MarshalIndent(msg, "", "    ")
-				f.WriteString(string(b))
+				if args.RecordFormat == "JSON" {
+					b, _ := json.MarshalIndent(msg, "", "    ")
+					f.WriteString(string(b))
+				} else {
+					b := msg.Value
+					f.Write(b)
+				}
 				msgTicker = time.NewTicker(1 * time.Second)
 			}
 		}
 	}
 
-	log.Infof("Finished writing messages to file: %s", totalFileName)
-
+	log.Infof("Finished writing messages to file: %s", fileName)
 	f.Close()
+	return nil
 }
