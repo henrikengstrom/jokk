@@ -47,7 +47,7 @@ func filterTopics(topics map[string]sarama.TopicDetail, filter string) (map[stri
 	return filteredTopics, filteredKeys, hits
 }
 
-func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDetail, filteredTopicNames []string, hits int, filter string) (string, sarama.TopicDetail) {
+func pickTopic(log common.Logger, filteredTopics map[string]sarama.TopicDetail, filteredTopicNames []string, hits int, filter string) (string, sarama.TopicDetail) {
 	var topicName string
 	var topicDetail sarama.TopicDetail
 	if hits == 0 {
@@ -74,7 +74,7 @@ func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDeta
 	return topicName, topicDetail
 }
 
-func parseTime(log common.JokkLogger, startArg string, endArg string) (time.Time, time.Time, error) {
+func parseTime(log common.Logger, startArg string, endArg string) (time.Time, time.Time, error) {
 	start := time.Now().Add(-1 * 24 * 365 * 10 * time.Hour) // set start time to 10 years back to get all messages
 	end := time.Now().Add(1 * time.Minute)                  // if no end time is given we set it to the future to get all messages
 	if startArg != "" {
@@ -95,4 +95,29 @@ func parseTime(log common.JokkLogger, startArg string, endArg string) (time.Time
 	}
 
 	return start, end, nil
+}
+
+func handleScroll(textAnchor string, scrollPosition int, direction int, availableRows int, content []string) (int, int, string) {
+	result := ""
+	count := 0
+	row := content[count]
+
+	//copy table layout/info to output until the point where the anchor is (indicating values and not text)
+	for !strings.Contains(strings.ReplaceAll(row, " ", ""), textAnchor) && count < len(content) {
+		result = fmt.Sprintf("%s%s\n", result, row)
+		count++
+		row = content[count]
+	}
+
+	// Since the top part of the content is not related to the values we must reset the scroll position accordingly
+	if scrollPosition == 0 {
+		scrollPosition = count
+	}
+
+	newPos := scrollPosition + direction
+	for i := newPos; i < len(content); i++ {
+		result = fmt.Sprintf("%s%s\n", result, content[i])
+	}
+
+	return count, newPos, result
 }
