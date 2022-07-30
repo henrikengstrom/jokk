@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -27,15 +28,31 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	listTopics(&envCtrl.logger, envCtrl.admin, envCtrl.client, envCtrl.args)
 	uiCtrl.area.Title = "List Topics"
-	uiCtrl.area.Text = envCtrl.logger.Content()
-
-	text := "F:Filter, M:Main, Q:Quit"
-	if envCtrl.args.Filter != "" {
-		text = "A: All, " + text
+	menuText := "F:Filter, M:Main, Q:Quit"
+	availableRows := uiCtrl.area.Dy()
+	content := envCtrl.logger.ContentString()
+	splitContent := strings.Split(content, "\n")
+	numberLines := strings.Count(content, "\n")
+	if numberLines > availableRows {
+		// navigation should be enabled
+		menuText = "D:Down, U:Up, " + menuText
+		text := ""
+		for i := 0; i < availableRows; i++ {
+			text = fmt.Sprintf("%s%s\n", text, splitContent[i])
+		}
+		uiCtrl.area.Text = text
+	} else {
+		uiCtrl.area.Text = envCtrl.logger.ContentString()
 	}
-	uiCtrl.menu.Text = text
-	ui.Render(uiCtrl.grid)
 
+	if envCtrl.args.Filter != "" {
+		menuText = "A: All, " + menuText
+	}
+
+	uiCtrl.menu.Text = menuText
+	ui.Render(uiCtrl.grid)
+	scrollPosition := 0
+	contentPosition := 0
 	for e := range ui.PollEvents() {
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
@@ -55,9 +72,47 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 				listTopicsLoop(envCtrl, uiCtrl)
 			case "M":
 				internalMainManuLoop(envCtrl, uiCtrl)
+			case "D":
+				cPos, sPos, text := handleScroll(scrollPosition, 1, availableRows, splitContent)
+				contentPosition = cPos
+				scrollPosition = sPos
+				uiCtrl.area.Text = text
+				ui.Render(uiCtrl.grid)
+			case "U":
+				if scrollPosition > contentPosition {
+					cPos, sPos, text := handleScroll(scrollPosition, -1, availableRows, splitContent)
+					contentPosition = cPos
+					scrollPosition = sPos
+					uiCtrl.area.Text = text
+					ui.Render(uiCtrl.grid)
+				}
 			}
 		}
 	}
+}
+
+func handleScroll(scrollPosition int, direction int, availableRows int, content []string) (int, int, string) {
+	result := ""
+	count := 0
+	row := content[count]
+	// copy table layout/info to output but leave out the values (which are numbered)
+	for !strings.Contains(row, "|  1  |") {
+		result = fmt.Sprintf("%s%s\n", result, row)
+		count++
+		row = content[count]
+	}
+
+	// Since the top part of the content is not related to the values we must reset the scroll position accordingly
+	if scrollPosition == 0 {
+		scrollPosition = count
+	}
+
+	newPos := scrollPosition + direction
+	for i := newPos; i < len(content); i++ {
+		result = fmt.Sprintf("%s%s\n", result, content[i])
+	}
+
+	return count, newPos, result
 }
 
 func keyboardInput(uiCtrl UICtrl, exitChar string) string {
@@ -65,7 +120,7 @@ func keyboardInput(uiCtrl UICtrl, exitChar string) string {
 	originalText := uiCtrl.menu.Text
 	for e := range ui.PollEvents() {
 		if e.Type == ui.KeyboardEvent {
-			if e.ID == exitChar {
+			if e.ID == "<C-c>" || e.ID == exitChar {
 				result = exitChar
 				break
 			} else if e.ID == "<Enter>" {
@@ -85,14 +140,14 @@ func topicInfoLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	topicInfo(&envCtrl.logger, envCtrl.admin, envCtrl.client, envCtrl.args)
 	uiCtrl.area.Title = "Topic Info"
-	uiCtrl.area.Text = envCtrl.logger.Content()
+	uiCtrl.area.Text = envCtrl.logger.ContentString()
 	uiCtrl.menu.Text = "M:Main, L:List Topics, Q:Quit"
 	ui.Render(uiCtrl.grid)
 
 	for e := range ui.PollEvents() {
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
-			case "Q":
+			case "Q", "<C-c>":
 				os.Exit(0)
 			case "M":
 				internalMainManuLoop(envCtrl, uiCtrl)
@@ -112,7 +167,7 @@ func internalMainManuLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	for e := range ui.PollEvents() {
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
-			case "Q":
+			case "Q", "<C-c>":
 				os.Exit(0)
 			case "L":
 				listTopicsLoop(envCtrl, uiCtrl)

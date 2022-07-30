@@ -103,12 +103,16 @@ func (l *CacheLogger) Panicf(msg string, args ...any) {
 	l.cache = append(l.cache, fmt.Sprintf(msg, args...))
 }
 
-func (l *CacheLogger) Content() string {
+func (l *CacheLogger) ContentString() string {
 	var content string
 	for _, s := range l.cache {
 		content = content + s
 	}
 	return content
+}
+
+func (l *CacheLogger) Content() []string {
+	return l.cache
 }
 
 func (l *CacheLogger) Clear() {
