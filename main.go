@@ -11,6 +11,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/henrikengstrom/jokk/common"
 	"github.com/henrikengstrom/jokk/kafka"
 	"github.com/jessevdk/go-flags"
@@ -31,8 +33,8 @@ type Args struct {
 	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
 	ViewMessages          JokkConfig `command:"viewMessages" description:"View messages in a topic (use -f/filter to determine topic)"`
 	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to disc (use -f/filter to determine topic)"`
+	InteractiveMode       JokkConfig `command:"interactiveMode" description:"Interactive screen mode"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
-	Mode                  string     `short:"m" long:"mode" description:"Type of mode to run in; logmode (default) or screenmode" default:"logmode"`
 }
 
 type KafkaSettings struct {
@@ -49,7 +51,6 @@ type JokkConfig struct {
 }
 
 func main() {
-	// FIXME : add mode
 	log := common.NewLogger()
 	log.Info("Welcome to Jokk")
 	var args Args
@@ -112,11 +113,9 @@ func main() {
 	defer consumer.Close()
 
 	switch parser.Active.Name {
+	case "interactiveMode":
+		screenLoop(log)
 	case "listTopics":
-		// TO CLEAR SCREEN
-		if args.Mode == "screenmode" {
-			fmt.Print("\033[H\033[2J")
-		}
 		listTopics(log, admin, client, args)
 	case "topicInfo":
 		topicInfo(log, admin, client, args)
@@ -133,6 +132,48 @@ func main() {
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
+	}
+}
+
+func screenLoop(log common.JokkLogger) {
+	if err := ui.Init(); err != nil {
+		log.Panicf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	grid := ui.NewGrid()
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	p1 := widgets.NewParagraph()
+	p1.Title = "List Topics"
+	p1.Text = ""
+
+	p2 := widgets.NewParagraph()
+	p2.Title = "Available Commands"
+	p2.Text = "1:List Topics, 2:Topic Info\nX: Exit"
+
+	grid.Set(
+		ui.NewRow(11.0/12,
+			ui.NewCol(1.0/1, p1),
+		),
+		ui.NewRow(1.0/12,
+			ui.NewCol(1.0/1, p2),
+		),
+	)
+
+	ui.Render(grid)
+
+	for e := range ui.PollEvents() {
+		if e.Type == ui.KeyboardEvent {
+			switch strings.ToUpper(e.ID) {
+			case "X":
+				break
+			default:
+				p1.Title = e.ID
+				ui.Render(grid)
+			}
+		}
 	}
 }
 
