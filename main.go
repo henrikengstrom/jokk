@@ -11,6 +11,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/henrikengstrom/jokk/common"
 	"github.com/henrikengstrom/jokk/kafka"
 	"github.com/jessevdk/go-flags"
@@ -31,8 +33,8 @@ type Args struct {
 	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
 	ViewMessages          JokkConfig `command:"viewMessages" description:"View messages in a topic (use -f/filter to determine topic)"`
 	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to disc (use -f/filter to determine topic)"`
+	InteractiveMode       JokkConfig `command:"interactiveMode" description:"Interactive screen mode"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
-	Mode                  string     `short:"m" long:"mode" description:"Type of mode to run in; logmode (default) or screenmode" default:"logmode"`
 }
 
 type KafkaSettings struct {
@@ -49,8 +51,7 @@ type JokkConfig struct {
 }
 
 func main() {
-	// FIXME : add mode
-	log := common.NewLogger()
+	log := common.NewConsoleLogger()
 	log.Info("Welcome to Jokk")
 	var args Args
 	var parser = flags.NewParser(&args, flags.Default)
@@ -112,14 +113,12 @@ func main() {
 	defer consumer.Close()
 
 	switch parser.Active.Name {
+	case "interactiveMode":
+		MainMenuLoop(log, admin, client, args, kafkaSettings.Host)
 	case "listTopics":
-		// TO CLEAR SCREEN
-		if args.Mode == "screenmode" {
-			fmt.Print("\033[H\033[2J")
-		}
 		listTopics(log, admin, client, args)
 	case "topicInfo":
-		topicInfo(log, admin, client, args)
+		topicInfoConsole(log, admin, client, args)
 	case "addTopic":
 		addTopic(log, admin, client, args)
 	case "deleteTopic":
@@ -133,6 +132,48 @@ func main() {
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
+	}
+}
+
+func screenLoop(log common.Logger) {
+	if err := ui.Init(); err != nil {
+		log.Panicf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	grid := ui.NewGrid()
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	p1 := widgets.NewParagraph()
+	p1.Title = "List Topics"
+	p1.Text = ""
+
+	p2 := widgets.NewParagraph()
+	p2.Title = "Available Commands"
+	p2.Text = "1:List Topics, 2:Topic Info\nX: Exit"
+
+	grid.Set(
+		ui.NewRow(11.0/12,
+			ui.NewCol(1.0/1, p1),
+		),
+		ui.NewRow(1.0/12,
+			ui.NewCol(1.0/1, p2),
+		),
+	)
+
+	ui.Render(grid)
+
+	for e := range ui.PollEvents() {
+		if e.Type == ui.KeyboardEvent {
+			switch strings.ToUpper(e.ID) {
+			case "X":
+				break
+			default:
+				p1.Title = e.ID
+				ui.Render(grid)
+			}
+		}
 	}
 }
 
@@ -150,15 +191,8 @@ func (jc *JokkConfig) loadFromFile(file string) error {
 	return nil
 }
 
-func listTopics(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) map[string]sarama.TopicDetail {
 	topics, _ := admin.ListTopics()
-
-	if args.Filter != "" {
-		log.Infof("found %d total topics - applying filter '%s' - retrieving details...", len(topics), args.Filter)
-	} else {
-		log.Infof("found %d total topics - retrieving details...", len(topics))
-	}
-
 	topicsInfo := []kafka.TopicInfo{}
 	var wg sync.WaitGroup
 	for topic, topicDetailInfo := range topics {
@@ -183,13 +217,18 @@ func listTopics(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 	}
 	wg.Wait()
 	log.Infof("\n%s", CreateTopicTable(topicsInfo, args.Verbose))
+	return topics
 }
 
-func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func topicInfoConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	// Count topics matching the filter
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, topicDetail := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	topicInfo(log, topicName, topicDetail, admin, client)
+}
+
+func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDetail, admin sarama.ClusterAdmin, client sarama.Client) {
 	pdci := kafka.DetailedPartitionInfo(admin, client, topicName)
 	topicsDetailInfo := kafka.TopicDetailInfo{
 		GeneralTopicInfo: kafka.GeneralTopicInfo{
@@ -205,10 +244,9 @@ func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.C
 
 	msgCounts24h, msgCounts1h, msgCounts1m := kafka.TimeBasedPartitionCount(client, topicName)
 	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCounts24h, msgCounts1h, msgCounts1m))
-
 }
 
-func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func addTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	log.Infof("topic creation process (enter 0 to exit)")
 	topicName := dialogue("enter topic name", "0")
 	numPartitionsStr := dialogue("number of partitions", "0")
@@ -237,7 +275,7 @@ func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Cl
 	}
 }
 
-func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func deleteTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -249,7 +287,7 @@ func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama
 	}
 }
 
-func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func clearTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -266,7 +304,7 @@ func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 	}
 }
 
-func viewMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
+func viewMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -297,7 +335,7 @@ Loop:
 	}
 }
 
-func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
+func storeMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
 	fileName := dialogue("Enter a file name to use", "X")
 	f, err := os.Create(fileName)
 	if err != nil {

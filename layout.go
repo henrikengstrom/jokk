@@ -59,7 +59,6 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 		return topicsInfo[i].GeneralTopicInfo.Name < topicsInfo[j].GeneralTopicInfo.Name
 	})
 
-	count := 1
 	for c, ti := range topicsInfo {
 		rows := []string{}
 		if verbose {
@@ -96,12 +95,6 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 					fmt.Sprintf("%d", pi.PartitionMsgCount),
 					fmt.Sprintf("%.2f", percentDistribution),
 				}
-				// elaborate color scheme :)
-				if count%2 == 0 {
-					for c, r := range rows {
-						rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
-					}
-				}
 
 				table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
 			}
@@ -113,15 +106,8 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberPartitions),
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.ReplicationFactor),
 			}
-			// elaborate color scheme :)
-			if count%2 == 0 {
-				for c, r := range rows {
-					rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
-				}
-			}
 			table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
 		}
-		count++
 	}
 
 	return table.String()
@@ -164,15 +150,25 @@ func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCounts24h []int, msgCo
 		"",
 	}
 	table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
-	count := 1
 	for i, pdi := range tdi.PartionDetailedInfo {
 		percentDistribution := 0.0
 		if tdi.GeneralTopicInfo.NumberMessages > 0 && pdi.PartitionInfo.PartitionMsgCount > 0 {
 			percentDistribution = float64(pdi.PartitionInfo.PartitionMsgCount) / float64(tdi.GeneralTopicInfo.NumberMessages) * 100
 		}
-		msg24hCount := msgCounts24h[i]
-		msg1hCount := msgCounts1h[i]
-		msg1mCount := msgCounts1m[i]
+
+		msg24hCount := -1
+		if len(msgCounts24h) > i {
+			msg24hCount = msgCounts24h[i]
+		}
+		msg1hCount := -1
+		if len(msgCounts1h) > i {
+			msg1hCount = msgCounts1h[i]
+		}
+		msg1mCount := -1
+		if len(msgCounts1m) > i {
+			msg1mCount = msgCounts1m[i]
+		}
+
 		rows = []string{
 			"",
 			"",
@@ -190,14 +186,6 @@ func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCounts24h []int, msgCo
 			fmt.Sprintf("%d", msg1mCount),
 		}
 
-		// elaborate color scheme :)
-		if count%2 == 0 {
-			for c, r := range rows {
-				rows[c] = fmt.Sprintf("%s%s%s", ColorAlternate, r, ColorDefault)
-			}
-		}
-
-		count++
 		table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
 	}
 	return table.String()

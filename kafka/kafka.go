@@ -3,7 +3,6 @@ package kafka
 import (
 	"crypto/tls"
 	"fmt"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -66,7 +65,7 @@ func DefaultConsumerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *s
 	return conf
 }
 
-func NewKafkaClient(log common.JokkLogger, brokers []string, config *sarama.Config) sarama.Client {
+func NewKafkaClient(log common.ConsoleLogger, brokers []string, config *sarama.Config) sarama.Client {
 	client, err := sarama.NewClient(brokers, config)
 	if err != nil {
 		log.Panicf("cannot connect to broker(s): %v => %s", brokers, err)
@@ -75,7 +74,7 @@ func NewKafkaClient(log common.JokkLogger, brokers []string, config *sarama.Conf
 }
 
 func EnableSasl(
-	log common.JokkLogger,
+	log common.ConsoleLogger,
 	conf *sarama.Config,
 	username string,
 	password string,
@@ -162,21 +161,29 @@ func DetailedPartitionInfo(admin sarama.ClusterAdmin, client sarama.Client, topi
 	pci := PartitionMessageCount(client, topic, OldestOffset)
 	var pcis PartitionDetailCountInfo
 
-	// Sort partitions in both collections so we can just iterate over them to retrieve the info needed
-	if len(pci.Partitions) != len(tm.Partitions) {
-		fmt.Printf("have inconsistent data - gotta bail!\n")
-		os.Exit(1)
-	}
-	sort.Slice(pci.Partitions, func(i, j int) bool {
-		return pci.Partitions[i].Id < pci.Partitions[j].Id
-	})
 	sort.Slice(tm.Partitions, func(i, j int) bool {
 		return tm.Partitions[i].ID < tm.Partitions[j].ID
 	})
+
+	sort.Slice(pci.Partitions, func(i, j int) bool {
+		return pci.Partitions[i].Id < pci.Partitions[j].Id
+	})
+
 	var pdis []PartitionDetailInfo
 	for i := 0; i < len(tm.Partitions); i++ {
+		pcip := PartitionInfo{
+			Id:                i,
+			OldOffset:         -1,
+			NewOffset:         -1,
+			PartitionMsgCount: -1,
+		}
+		// safeguard inconsistent data back from Kafka
+		if len(pci.Partitions) > i {
+			pcip = pci.Partitions[i]
+		}
+
 		pdis = append(pdis, PartitionDetailInfo{
-			PartitionInfo:   pci.Partitions[i],
+			PartitionInfo:   pcip,
 			Leader:          tm.Partitions[i].Leader,
 			Replicas:        tm.Partitions[i].Replicas,
 			Isr:             tm.Partitions[i].Isr,
