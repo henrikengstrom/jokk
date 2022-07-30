@@ -66,7 +66,7 @@ func DefaultConsumerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *s
 	return conf
 }
 
-func NewKafkaClient(log common.JokkLogger, brokers []string, config *sarama.Config) sarama.Client {
+func NewKafkaClient(log common.ConsoleLogger, brokers []string, config *sarama.Config) sarama.Client {
 	client, err := sarama.NewClient(brokers, config)
 	if err != nil {
 		log.Panicf("cannot connect to broker(s): %v => %s", brokers, err)
@@ -75,7 +75,7 @@ func NewKafkaClient(log common.JokkLogger, brokers []string, config *sarama.Conf
 }
 
 func EnableSasl(
-	log common.JokkLogger,
+	log common.ConsoleLogger,
 	conf *sarama.Config,
 	username string,
 	password string,

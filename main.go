@@ -11,8 +11,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
-	ui "github.com/gizak/termui/v3"
-	"github.com/gizak/termui/v3/widgets"
 	"github.com/henrikengstrom/jokk/common"
 	"github.com/henrikengstrom/jokk/kafka"
 	"github.com/jessevdk/go-flags"
@@ -51,7 +49,7 @@ type JokkConfig struct {
 }
 
 func main() {
-	log := common.NewLogger()
+	log := common.NewConsoleLogger()
 	log.Info("Welcome to Jokk")
 	var args Args
 	var parser = flags.NewParser(&args, flags.Default)
@@ -114,7 +112,7 @@ func main() {
 
 	switch parser.Active.Name {
 	case "interactiveMode":
-		screenLoop(log)
+		MainMenuLoop(log, admin, client, args)
 	case "listTopics":
 		listTopics(log, admin, client, args)
 	case "topicInfo":
@@ -135,48 +133,6 @@ func main() {
 	}
 }
 
-func screenLoop(log common.JokkLogger) {
-	if err := ui.Init(); err != nil {
-		log.Panicf("failed to initialize termui: %v", err)
-	}
-	defer ui.Close()
-
-	grid := ui.NewGrid()
-	termWidth, termHeight := ui.TerminalDimensions()
-	grid.SetRect(0, 0, termWidth, termHeight)
-
-	p1 := widgets.NewParagraph()
-	p1.Title = "List Topics"
-	p1.Text = ""
-
-	p2 := widgets.NewParagraph()
-	p2.Title = "Available Commands"
-	p2.Text = "1:List Topics, 2:Topic Info\nX: Exit"
-
-	grid.Set(
-		ui.NewRow(11.0/12,
-			ui.NewCol(1.0/1, p1),
-		),
-		ui.NewRow(1.0/12,
-			ui.NewCol(1.0/1, p2),
-		),
-	)
-
-	ui.Render(grid)
-
-	for e := range ui.PollEvents() {
-		if e.Type == ui.KeyboardEvent {
-			switch strings.ToUpper(e.ID) {
-			case "X":
-				break
-			default:
-				p1.Title = e.ID
-				ui.Render(grid)
-			}
-		}
-	}
-}
-
 func (jc *JokkConfig) loadFromFile(file string) error {
 	fp, err := hd.Expand(file)
 	if err != nil {
@@ -191,7 +147,7 @@ func (jc *JokkConfig) loadFromFile(file string) error {
 	return nil
 }
 
-func listTopics(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 
 	if args.Filter != "" {
@@ -226,7 +182,7 @@ func listTopics(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 	log.Infof("\n%s", CreateTopicTable(topicsInfo, args.Verbose))
 }
 
-func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func topicInfo(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	// Count topics matching the filter
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
@@ -249,7 +205,7 @@ func topicInfo(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.C
 
 }
 
-func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func addTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	log.Infof("topic creation process (enter 0 to exit)")
 	topicName := dialogue("enter topic name", "0")
 	numPartitionsStr := dialogue("number of partitions", "0")
@@ -278,7 +234,7 @@ func addTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Cl
 	}
 }
 
-func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func deleteTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -290,7 +246,7 @@ func deleteTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama
 	}
 }
 
-func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func clearTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -307,7 +263,7 @@ func clearTopic(log common.JokkLogger, admin sarama.ClusterAdmin, client sarama.
 	}
 }
 
-func viewMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
+func viewMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
@@ -338,7 +294,7 @@ Loop:
 	}
 }
 
-func storeMessages(log common.JokkLogger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
+func storeMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
 	fileName := dialogue("Enter a file name to use", "X")
 	f, err := os.Create(fileName)
 	if err != nil {

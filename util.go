@@ -47,7 +47,7 @@ func filterTopics(topics map[string]sarama.TopicDetail, filter string) (map[stri
 	return filteredTopics, filteredKeys, hits
 }
 
-func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDetail, filteredTopicNames []string, hits int, filter string) (string, sarama.TopicDetail) {
+func pickTopic(log common.Logger, filteredTopics map[string]sarama.TopicDetail, filteredTopicNames []string, hits int, filter string) (string, sarama.TopicDetail) {
 	var topicName string
 	var topicDetail sarama.TopicDetail
 	if hits == 0 {
@@ -74,7 +74,7 @@ func pickTopic(log common.JokkLogger, filteredTopics map[string]sarama.TopicDeta
 	return topicName, topicDetail
 }
 
-func parseTime(log common.JokkLogger, startArg string, endArg string) (time.Time, time.Time, error) {
+func parseTime(log common.Logger, startArg string, endArg string) (time.Time, time.Time, error) {
 	start := time.Now().Add(-1 * 24 * 365 * 10 * time.Hour) // set start time to 10 years back to get all messages
 	end := time.Now().Add(1 * time.Minute)                  // if no end time is given we set it to the future to get all messages
 	if startArg != "" {
