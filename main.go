@@ -11,6 +11,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Shopify/sarama"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/henrikengstrom/jokk/common"
 	"github.com/henrikengstrom/jokk/kafka"
 	"github.com/jessevdk/go-flags"
@@ -130,6 +132,48 @@ func main() {
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
+	}
+}
+
+func screenLoop(log common.Logger) {
+	if err := ui.Init(); err != nil {
+		log.Panicf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	grid := ui.NewGrid()
+	termWidth, termHeight := ui.TerminalDimensions()
+	grid.SetRect(0, 0, termWidth, termHeight)
+
+	p1 := widgets.NewParagraph()
+	p1.Title = "List Topics"
+	p1.Text = ""
+
+	p2 := widgets.NewParagraph()
+	p2.Title = "Available Commands"
+	p2.Text = "1:List Topics, 2:Topic Info\nX: Exit"
+
+	grid.Set(
+		ui.NewRow(11.0/12,
+			ui.NewCol(1.0/1, p1),
+		),
+		ui.NewRow(1.0/12,
+			ui.NewCol(1.0/1, p2),
+		),
+	)
+
+	ui.Render(grid)
+
+	for e := range ui.PollEvents() {
+		if e.Type == ui.KeyboardEvent {
+			switch strings.ToUpper(e.ID) {
+			case "X":
+				break
+			default:
+				p1.Title = e.ID
+				ui.Render(grid)
+			}
+		}
 	}
 }
 
