@@ -23,8 +23,8 @@ type Args struct {
 	CredentialsConfigFile string     `short:"c" long:"credentials-file" description:"File that contains the credentials" default:"./jokk.toml"`
 	Environment           string     `short:"n" long:"environment" description:"Dictates what configuration settings to use (from the jokk.toml file)"`
 	Filter                string     `short:"f" long:"filter" description:"Apply filter to narrow search result"`
-	StartTime             string     `short:"s" long:"start-time" description:"Start time (not applicable to all commands)"`
-	EndTime               string     `short:"e" long:"end-time" description:"End time (not applicable to all commands)"`
+	StartTime             string     `short:"s" long:"start-time" description:"Start time format 'YYYY-MM-DD HH:MM:SS' (not applicable to all commands)"`
+	EndTime               string     `short:"e" long:"end-time" description:"End time format 'YYYY-MM-DD HH:MM:SS' (not applicable to all commands)"`
 	RecordFormat          string     `short:"r" long:"record-format" description:"Formatting to apply when storing messages (JSON/raw)" default:"JSON"`
 	ListTopics            JokkConfig `command:"listTopics" description:"List topics and related information"`
 	TopicInfo             JokkConfig `command:"topicInfo" description:"Detailed topic info (use -f/filter to determine topic(s))"`
@@ -114,19 +114,19 @@ func main() {
 
 	switch parser.Active.Name {
 	case "interactiveMode":
-		MainMenuLoop(log, admin, client, args, kafkaSettings.Host)
+		MainMenuLoop(log, admin, client, consumer, args, kafkaSettings.Host)
 	case "listTopics":
 		listTopics(log, admin, client, args)
 	case "topicInfo":
 		topicInfoConsole(log, admin, client, args)
 	case "addTopic":
-		addTopic(log, admin, client, args)
+		addTopicConsole(log, admin, client, args)
 	case "deleteTopic":
-		deleteTopic(log, admin, client, args)
+		deleteTopicConsole(log, admin, client, args)
 	case "clearTopic":
-		clearTopic(log, admin, client, args)
+		clearTopicConsole(log, admin, client, args)
 	case "viewMessages":
-		viewMessages(log, admin, consumer, kc, args)
+		viewMessagesConsole(log, admin, consumer, kc, args)
 	case "storeMessages":
 		storeMessages(log, admin, consumer, kc, args)
 	default:
@@ -228,6 +228,7 @@ func topicInfoConsole(log common.Logger, admin sarama.ClusterAdmin, client saram
 	topicInfo(log, topicName, topicDetail, admin, client)
 }
 
+// FIXME : topic info should use activated time period for messages etc.
 func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDetail, admin sarama.ClusterAdmin, client sarama.Client) {
 	pdci := kafka.DetailedPartitionInfo(admin, client, topicName)
 	topicsDetailInfo := kafka.TopicDetailInfo{
@@ -246,7 +247,7 @@ func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDeta
 	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCounts24h, msgCounts1h, msgCounts1m))
 }
 
-func addTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func addTopicConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	log.Infof("topic creation process (enter 0 to exit)")
 	topicName := dialogue("enter topic name", "0")
 	numPartitionsStr := dialogue("number of partitions", "0")
@@ -262,12 +263,17 @@ func addTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client
 		os.Exit(1)
 	}
 
-	err = admin.CreateTopic(topicName, &sarama.TopicDetail{
-		NumPartitions:     int32(numPartitions),
-		ReplicationFactor: int16(replicationFactor),
+	addTopic(topicName, int32(numPartitions), int16(replicationFactor), log, admin)
+}
+
+func addTopic(topicName string, numPartitions int32, replicationFactor int16, log common.Logger, admin sarama.ClusterAdmin) {
+	err := admin.CreateTopic(topicName, &sarama.TopicDetail{
+		NumPartitions:     numPartitions,
+		ReplicationFactor: replicationFactor,
 		ReplicaAssignment: map[int32][]int32{},
 		ConfigEntries:     map[string]*string{},
 	}, false)
+
 	if err != nil {
 		log.Errorf("Could not create topic %s - %v", topicName, err)
 	} else {
@@ -275,10 +281,14 @@ func addTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client
 	}
 }
 
-func deleteTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func deleteTopicConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	deleteTopic(topicName, log, admin)
+}
+
+func deleteTopic(topicName string, log common.Logger, admin sarama.ClusterAdmin) {
 	err := admin.DeleteTopic(topicName)
 	if err != nil {
 		log.Errorf("Could not delete topic %s - %v", topicName, err)
@@ -287,10 +297,14 @@ func deleteTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Cli
 	}
 }
 
-func clearTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
+func clearTopicConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	clearTopic(topicName, log, admin, client)
+}
+
+func clearTopic(topicName string, log common.Logger, admin sarama.ClusterAdmin, client sarama.Client) {
 	partitionInfo := kafka.DetailedPartitionInfo(admin, client, topicName)
 	offsets := make(map[int32]int64)
 	for _, pdi := range partitionInfo.Partitions {
@@ -304,10 +318,35 @@ func clearTopic(log common.Logger, admin sarama.ClusterAdmin, client sarama.Clie
 	}
 }
 
-func viewMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
+func viewMessagesConsole(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) {
 	topics, _ := admin.ListTopics()
 	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
 	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	resultChan := make(chan sarama.ConsumerMessage)
+	commandChan := make(chan string)
+
+	go viewMessages(topicName, log, consumer, args, resultChan, commandChan)
+Loop:
+	for {
+		select {
+		case msg := <-resultChan:
+			// Check if this is an empty message to indicate that there are no more messages to view
+			if msg.Topic == "" {
+				break Loop
+			} else {
+				log.Infof("[Time : Offset: Value] %v : %d : %v", msg.Timestamp, msg.Offset, msg.Value)
+				if dialogue("View another = enter (S to stop)", "S") == "S" {
+					commandChan <- "N"
+					break Loop
+				} else {
+					commandChan <- "Y"
+				}
+			}
+		}
+	}
+}
+
+func viewMessages(topicName string, log common.Logger, consumer kafka.JokkConsumer, args Args, resultChan chan sarama.ConsumerMessage, commandChan chan string) {
 	consumer.StartReceivingMessages(topicName)
 
 	start, end, err := parseTime(log, args.StartTime, args.EndTime)
@@ -321,18 +360,21 @@ Loop:
 	for {
 		select {
 		case <-msgTicker.C:
-			log.Infof("Did not find any message - exiting")
+			log.Infof("Did not find any messages - exiting")
+			resultChan <- sarama.ConsumerMessage{}
 			break Loop
 		case msg := <-consumer.MsgChannel:
 			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
-				log.Infof("[Time : Offset: Value] %v : %d : %v", msg.Timestamp, msg.Offset, msg.Value)
-				if dialogue("View another = enter (N to exit)", "N") == "N" {
+				resultChan <- msg
+				cmd := <-commandChan
+				if cmd == "N" {
 					break Loop
 				}
-				msgTicker = time.NewTicker(3 * time.Second)
 			}
+			msgTicker = time.NewTicker(3 * time.Second)
 		}
 	}
+
 }
 
 func storeMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {

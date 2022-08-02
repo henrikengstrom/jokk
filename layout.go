@@ -190,3 +190,43 @@ func CreateTopicDetailTable(tdi kafka.TopicDetailInfo, msgCounts24h []int, msgCo
 	}
 	return table.String()
 }
+
+func CreateMessagesTable(msgs []MsgInfo, width int) string {
+	table := simpletable.New()
+	headers := []string{
+		"#",
+		"TIME",
+		"OFFSET",
+		"VALUE",
+	}
+	table.Header = CreateTableHeader(headers, simpletable.AlignCenter)
+	counter := len(msgs)
+
+	// order the messages based on descending time
+	sort.Slice(msgs, func(i, j int) bool {
+		return msgs[i].timestamp.After(msgs[j].timestamp)
+	})
+
+	for _, msg := range msgs {
+		// Crude function to split a too long string value into a multi line value that fits the value cell
+		splitValue := ""
+		for i, v := range msg.value {
+			splitValue = splitValue + string(v)
+			// FIXME: need a better (more scientific number) here
+			if i%(width-80) == 0 {
+				splitValue = splitValue + "\n"
+			}
+		}
+
+		rows := []string{
+			fmt.Sprintf("%d", counter),
+			fmt.Sprintf("%v", msg.timestamp),
+			fmt.Sprintf("%d", msg.offset),
+			fmt.Sprintf("%s", splitValue),
+		}
+		table.Body.Cells = append(table.Body.Cells, CreateTableRow(rows, simpletable.AlignCenter))
+		counter--
+	}
+
+	return table.String()
+}

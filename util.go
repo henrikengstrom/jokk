@@ -121,3 +121,25 @@ func handleScroll(textAnchor string, scrollPosition int, direction int, availabl
 
 	return count, newPos, result
 }
+
+func extractTopicName(topicNumber string, rowsContent []string) string {
+	topicName := ""
+
+	row := ""
+	for _, s := range rowsContent {
+		parts := strings.Split(s, "|")
+		if len(parts) > 2 {
+			replaced := strings.ReplaceAll(parts[1], " ", "")
+			if replaced == topicNumber {
+				row = s
+			}
+		}
+	}
+
+	if row != "" {
+		infos := strings.Split(row, "|")
+		topicName = strings.Trim(infos[2], " ")
+	}
+
+	return topicName
+}
