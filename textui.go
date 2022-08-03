@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Shopify/sarama"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	"github.com/henrikengstrom/jokk/common"
+	"github.com/henrikengstrom/jokk/kafka"
 )
 
 type UICtrl struct {
@@ -19,17 +22,21 @@ type UICtrl struct {
 }
 
 type EnvCtrl struct {
-	logger common.CacheLogger
-	admin  sarama.ClusterAdmin
-	client sarama.Client
-	args   Args
+	logger   common.CacheLogger
+	admin    sarama.ClusterAdmin
+	client   sarama.Client
+	consumer kafka.JokkConsumer
+	args     Args
 }
 
 func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	titleText := "List Topics"
 	if envCtrl.args.Filter != "" {
-		titleText = fmt.Sprintf("%s (using filter '%s')", titleText, envCtrl.args.Filter)
+		titleText = fmt.Sprintf("%s  - filter '%s'", titleText, envCtrl.args.Filter)
+	}
+	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
+		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
 	}
 
 	// Indicate that something is in progress
@@ -38,7 +45,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	ui.Render(uiCtrl.grid)
 
 	topics := listTopics(&envCtrl.logger, envCtrl.admin, envCtrl.client, envCtrl.args)
-	menuText := "T:Topic Info, F:Filter, M:Main, Q:Quit"
+	menuText := "T:Topic Info, C:Create Topic, R:Remove Topic, F:Filter, Z:Refresh Page, M:Main, Q:Quit"
 	availableRows := uiCtrl.mainArea.Dy()
 	content := envCtrl.logger.ContentString()
 	rowsContent := strings.Split(content, "\n")
@@ -56,7 +63,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	}
 
 	if envCtrl.args.Filter != "" {
-		menuText = "A: All Topics, " + menuText
+		menuText = "A:All Topics, " + menuText
 	}
 
 	uiCtrl.commandArea.Text = menuText
@@ -68,6 +75,33 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 			switch strings.ToUpper(e.ID) {
 			case "Q":
 				os.Exit(0)
+			case "C":
+				// create topic
+				uiCtrl.commandArea.Text = "Topic name: "
+				ui.Render(uiCtrl.grid)
+				topicName := keyboardInput(uiCtrl, "0")
+				uiCtrl.commandArea.Text = "Number of partitions: "
+				ui.Render(uiCtrl.grid)
+				partitions := keyboardInput(uiCtrl, "0")
+				numPartitions, _ := strconv.Atoi(partitions)
+				uiCtrl.commandArea.Text = "Replication factor: "
+				ui.Render(uiCtrl.grid)
+				replicationFactor := keyboardInput(uiCtrl, "0")
+				numReplicationFactor, _ := strconv.Atoi(replicationFactor)
+				addTopic(topicName, int32(numPartitions), int16(numReplicationFactor), &envCtrl.logger, envCtrl.admin)
+				listTopicsLoop(envCtrl, uiCtrl)
+			case "R":
+				// remove/delete topic
+				uiCtrl.commandArea.Text = "Type the topic number to delete and press enter (or X to leave): "
+				ui.Render(uiCtrl.grid)
+				topicNumber := keyboardInput(uiCtrl, "X")
+				if topicNumber != "X" {
+					topicName := extractTopicName(topicNumber, rowsContent)
+					if topicName != "" {
+						deleteTopic(topicName, &envCtrl.logger, envCtrl.admin)
+					}
+					listTopicsLoop(envCtrl, uiCtrl)
+				}
 			case "A":
 				// reset filter to get all topics
 				envCtrl.args.Filter = ""
@@ -97,29 +131,19 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 					ui.Render(uiCtrl.grid)
 				}
 			case "T":
-				uiCtrl.commandArea.Text = "Type the topic number and press enter (or 0 to leave): "
+				uiCtrl.commandArea.Text = "Type the topic number and press enter (or X to leave): "
 				ui.Render(uiCtrl.grid)
-				topicNumber := keyboardInput(uiCtrl, "0")
-				if topicNumber != "0" {
-					row := ""
-					for _, s := range rowsContent {
-						parts := strings.Split(s, "|")
-						if len(parts) > 2 {
-							replaced := strings.ReplaceAll(parts[1], " ", "")
-							if replaced == topicNumber {
-								row = s
-							}
-						}
-					}
-
-					if row != "" {
-						infos := strings.Split(row, "|")
-						topicName := strings.Trim(infos[2], " ")
+				topicNumber := keyboardInput(uiCtrl, "X")
+				if topicNumber != "X" {
+					topicName := extractTopicName(topicNumber, rowsContent)
+					if topicName != "" {
 						topicDetails, _, _ := filterTopics(topics, topicName)
 						topicDetail := topicDetails[topicName]
 						topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
 					}
 				}
+			case "Z":
+				listTopicsLoop(envCtrl, uiCtrl)
 			}
 		}
 	}
@@ -128,8 +152,12 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	topicInfo(&envCtrl.logger, topicName, topicDetail, envCtrl.admin, envCtrl.client)
-	uiCtrl.mainArea.Title = "Topic Info"
-	menuText := "R:Remove Topic, L:List Topics, M:Main, Q:Quit"
+	titleText := "Topic Info"
+	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
+		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
+	}
+	uiCtrl.mainArea.Title = titleText
+	menuText := "C:Clear/Empty Topic, V:View Messages, L:List Topics, Z:Refresh Page, M:Main, Q:Quit"
 	availableRows := uiCtrl.mainArea.Dy()
 	content := envCtrl.logger.ContentString()
 	rowsContent := strings.Split(content, "\n")
@@ -153,8 +181,16 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 	for e := range ui.PollEvents() {
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
-			case "R":
-				// FIXME - implement
+			case "C":
+				uiCtrl.commandArea.Text = "Type Y to clear topic messages: "
+				ui.Render(uiCtrl.grid)
+				response := keyboardInput(uiCtrl, "X")
+				if response == "Y" {
+					uiCtrl.mainArea.Text = "Clearing messages from topic..."
+					ui.Render(uiCtrl.grid)
+					clearTopic(topicName, &envCtrl.logger, envCtrl.admin, envCtrl.client)
+				}
+				topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
 			case "L":
 				listTopicsLoop(envCtrl, uiCtrl)
 			case "M":
@@ -175,9 +211,78 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 					uiCtrl.mainArea.Text = text
 					ui.Render(uiCtrl.grid)
 				}
+			case "Z":
+				uiCtrl.mainArea.Text = "Refreshing page..."
+				ui.Render(uiCtrl.grid)
+				topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
+			case "V":
+				viewMessagesLoop(topicName, topicDetail, envCtrl, uiCtrl)
 			}
 		}
 	}
+}
+
+type MsgInfo struct {
+	timestamp time.Time
+	offset    int64
+	value     string
+}
+
+func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl EnvCtrl, uiCtrl UICtrl) {
+	resultChan := make(chan sarama.ConsumerMessage)
+	commandChan := make(chan string)
+	go viewMessages(topicName, &envCtrl.logger, envCtrl.consumer, envCtrl.args, resultChan, commandChan)
+
+	titleText := fmt.Sprintf("View Messages - topic '%s'", topicName)
+	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
+		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
+	}
+	uiCtrl.mainArea.Title = titleText
+	commandText := "N:Next Message, T:Topic Info, L:List Topics, M:Main, Q:Quit"
+	uiCtrl.commandArea.Text = commandText
+	text := "Retrieving messages..."
+	uiCtrl.mainArea.Text = text
+	ui.Render(uiCtrl.grid)
+
+	msgs := []MsgInfo{}
+	for {
+		select {
+		case e := <-ui.PollEvents():
+			if e.Type == ui.KeyboardEvent {
+				switch strings.ToUpper(e.ID) {
+				case "N":
+					commandChan <- "Y"
+				case "T":
+					topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
+				case "L":
+					listTopicsLoop(envCtrl, uiCtrl)
+				case "Q", "<C-c>":
+					os.Exit(0)
+				}
+			}
+		case msg := <-resultChan:
+			if msg.Topic != "" {
+				msgs = append(msgs, MsgInfo{
+					timestamp: msg.Timestamp,
+					offset:    msg.Offset,
+					value:     string(msg.Value),
+				})
+
+				// FIXME: Only render parts of the messages since the text area can only present a couple.
+				// The logic here could keep track of total number of messages and the ones that are currently being rendered.
+				// E.g. msgs 114-135 is currently viewed. When the user scrolls up or down the messages rendered are changed accordingly.
+				text = CreateMessagesTable(msgs, uiCtrl.mainArea.Dx())
+				uiCtrl.mainArea.Text = text
+				ui.Render(uiCtrl.mainArea)
+			} else {
+				uiCtrl.commandArea.Text = "T:Topic Info, L:List Topics, M:Main, Q:Quit"
+				text = fmt.Sprintf("*** No more messages available ***\n%s", text)
+				uiCtrl.mainArea.Text = text
+				ui.Render(uiCtrl.grid)
+			}
+		}
+	}
+
 }
 
 func keyboardInput(uiCtrl UICtrl, exitChar string) string {
@@ -202,7 +307,14 @@ func keyboardInput(uiCtrl UICtrl, exitChar string) string {
 }
 
 func internalMainManuLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
-	uiCtrl.mainArea.Title = "Main menu"
+	titleText := "Main menu"
+	if envCtrl.args.Filter != "" {
+		titleText = fmt.Sprintf("%s  - filter '%s'", titleText, envCtrl.args.Filter)
+	}
+	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
+		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
+	}
+	uiCtrl.mainArea.Title = titleText
 	mainAreaText := `	
       _  _  _   _  _  _  _    _           _  _           _    
      (_)(_)(_)_(_)(_)(_)(_)_ (_)       _ (_)(_)       _ (_)   
@@ -220,7 +332,7 @@ Developed in 2022 by Henrik Engström. Free to use without any guarantees whatso
 See the "Available Commands" below to get started.
  `
 	uiCtrl.mainArea.Text = mainAreaText
-	uiCtrl.commandArea.Text = "L:List Topics, A:Add Topic, H:Help, Q:Quit"
+	uiCtrl.commandArea.Text = "L:List Topics, F: Filter, P: Period, H:Help, Q:Quit"
 	ui.Render(uiCtrl.grid)
 
 	for e := range ui.PollEvents() {
@@ -230,8 +342,42 @@ See the "Available Commands" below to get started.
 				os.Exit(0)
 			case "L":
 				listTopicsLoop(envCtrl, uiCtrl)
-			case "A":
-				//addTopicLoop(envCtrl, uiCtrl)
+			case "F":
+				uiCtrl.commandArea.Text = "Type string to activate filter and press enter (or 0 to leave): "
+				ui.Render(uiCtrl.grid)
+				result := keyboardInput(uiCtrl, "0")
+				if result != "0" {
+					envCtrl.args.Filter = result
+				}
+				internalMainManuLoop(envCtrl, uiCtrl)
+			case "P":
+				uiCtrl.commandArea.Text = "Type start time format 'YYYY-MM-DD HH:MM:SS' or B string for the beginning of time (X to leave): "
+				ui.Render(uiCtrl.grid)
+				start := keyboardInput(uiCtrl, "X")
+				if start != "X" {
+					uiCtrl.commandArea.Text = "Type end time format 'YYYY-MM-DD HH:MM:SS' or N for now (X to leave): "
+					ui.Render(uiCtrl.grid)
+					end := keyboardInput(uiCtrl, "X")
+					if end != "X" {
+						// reset start or end time based on indicators - the parseTime method has logic to interpret empty strings
+						if start == "B" {
+							start = ""
+						}
+						if end == "N" {
+							end = ""
+						}
+						st, et, err := parseTime(&envCtrl.logger, start, end)
+						if err != nil {
+							uiCtrl.commandArea.Text = fmt.Sprintf("Press enter to try again: Input error %v", err)
+							ui.Render(uiCtrl.grid)
+							<-ui.PollEvents()
+						} else {
+							envCtrl.args.StartTime = st.Local().Format("2006-01-02 15:04:05")
+							envCtrl.args.EndTime = et.Local().Format("2006-01-02 15:04:05")
+						}
+					}
+				}
+				internalMainManuLoop(envCtrl, uiCtrl)
 			case "H":
 				//helpLoop(envCtrl, uiCtrl)
 			default:
@@ -242,7 +388,7 @@ See the "Available Commands" below to get started.
 	}
 }
 
-func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args, kafkaHost string) {
+func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, consumer kafka.JokkConsumer, args Args, kafkaHost string) {
 	if err := ui.Init(); err != nil {
 		log.Panicf("failed to initialize termui: %v", err)
 	}
@@ -278,10 +424,11 @@ func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Cl
 	ui.Render(grid)
 
 	envCtrl := EnvCtrl{
-		logger: common.NewCacheLogger(),
-		admin:  admin,
-		client: client,
-		args:   args,
+		logger:   common.NewCacheLogger(),
+		admin:    admin,
+		client:   client,
+		consumer: consumer,
+		args:     args,
 	}
 
 	uiCtrl := UICtrl{
