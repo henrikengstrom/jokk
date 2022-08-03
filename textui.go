@@ -31,7 +31,7 @@ type EnvCtrl struct {
 
 func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
-	titleText := "List Topics"
+	titleText := fmt.Sprintf("List Topics - data retrieved %s", time.Now().Format("2006-01-02 15:04:05"))
 	if envCtrl.args.Filter != "" {
 		titleText = fmt.Sprintf("%s  - filter '%s'", titleText, envCtrl.args.Filter)
 	}
@@ -152,7 +152,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	topicInfo(&envCtrl.logger, topicName, topicDetail, envCtrl.admin, envCtrl.client)
-	titleText := "Topic Info"
+	titleText := fmt.Sprintf("Topic Info - data retrieved %s", time.Now().Format("2006-01-02 15:04:05"))
 	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
 		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
 	}

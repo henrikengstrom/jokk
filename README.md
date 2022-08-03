@@ -21,13 +21,22 @@ cd jokk
 go build
 ```
 
+For more build options see `build.sh`:
+```
+./build.sh -h
+```
+
 ### Configuration
 
 First you must let jokk know what Kafka environments you want to inspect. To do so, simply copy the file `jokk.toml.example` to `jokk.toml` and add the required information. The local Kafka environment settings are pre-filled and if you have a local instance running you can access it by setting the environment flag to `-e local`.
 
-## Available functionality
+## Running Jokk
 
-Below is a non complete list of commands. For a complete list of the available commands type: `./jokk -h`.
+Jokk supports two modes; **command line mode** and **interactive mode**. The sections below describe how to use each of these modes.
+
+### Command Line Mode
+
+Below is a non=complete list of commands. For a complete list of the available commands type: `./jokk -h`.
 
 Currently issuing the above command will generate the following output:
 ```
@@ -38,10 +47,10 @@ Application Options:
   -c, --credentials-file= File that contains the credentials (default: ./jokk.toml)
   -n, --environment=      Dictates what configuration settings to use (from the jokk.toml file)
   -f, --filter=           Apply filter to narrow search result
-  -s, --start-time=       Start time (not applicable to all commands)
-  -e, --end-time=         End time (not applicable to all commands)
+  -s, --start-time=       Start time format 'YYYY-MM-DD HH:MM:SS' (not applicable to all commands)
+  -e, --end-time=         End time format 'YYYY-MM-DD HH:MM:SS' (not applicable to all commands)
+  -r, --record-format=    Formatting to apply when storing messages (JSON/raw) (default: JSON)
   -v, --verbose           Display verbose information when available
-  -m, --mode=             Type of mode to run in; logmode (default) or screenmode (default: logmode)
 
 Help Options:
   -h, --help              Show this help message
@@ -50,14 +59,14 @@ Available commands:
   addTopic       Add a topic to the Kafka cluster
   clearTopic     Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)
   deleteTopic    Delete a topic from the Kafka cluster (use -f/filter to determine topic)
+  interactive    Interactive mode
   listTopics     List topics and related information
   storeMessages  Store messages from a topic to disc (use -f/filter to determine topic)
   topicInfo      Detailed topic info (use -f/filter to determine topic(s))
   viewMessages   View messages in a topic (use -f/filter to determine topic)
 ```
 
-
-The examples below use `-e local` but you can substitute this with whatever environment configurations you have provided in the `jokk.toml` file.
+The examples below use `-n local` but you can substitute this with whatever environment configurations you have provided in the `jokk.toml` file.
 
 ### List topics
 
@@ -189,3 +198,16 @@ The JSON file content will look like this:
 ...
 ```
 
+### Interactive Mode
+
+Instead of running every single task from the command line you can start Jokk in so-called interactive mode. This will open a text based UI from which you can run all commands by pressing commands on your keyboard. It's essentially a very basic UI for interacting with the underlying functionality in Jokk. 
+
+```
+./jokk -n local interactive
+```
+
+This will display something like this:
+
+![](resources/interactive_mode.png)
+
+See the area at the bottom named "Available Commands" for what commands are accessible in the current context.
