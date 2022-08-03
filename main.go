@@ -33,7 +33,7 @@ type Args struct {
 	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
 	ViewMessages          JokkConfig `command:"viewMessages" description:"View messages in a topic (use -f/filter to determine topic)"`
 	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to disc (use -f/filter to determine topic)"`
-	InteractiveMode       JokkConfig `command:"interactiveMode" description:"Interactive screen mode"`
+	InteractiveMode       JokkConfig `command:"interactive" description:"Interactive mode"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
 }
 
@@ -113,7 +113,7 @@ func main() {
 	defer consumer.Close()
 
 	switch parser.Active.Name {
-	case "interactiveMode":
+	case "interactive":
 		MainMenuLoop(log, admin, client, consumer, args, kafkaSettings.Host)
 	case "listTopics":
 		listTopics(log, admin, client, args)
