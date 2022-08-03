@@ -256,6 +256,8 @@ func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl 
 					topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
 				case "L":
 					listTopicsLoop(envCtrl, uiCtrl)
+				case "M":
+					internalMainManuLoop(envCtrl, uiCtrl)
 				case "Q", "<C-c>":
 					os.Exit(0)
 				}
@@ -295,11 +297,16 @@ func keyboardInput(uiCtrl UICtrl, exitChar string) string {
 				break
 			} else if e.ID == "<Enter>" {
 				break
+			} else if e.ID == "<Space>" {
+				result = result + " "
+			} else if e.ID == "<Backspace>" {
+				result = result[:len(result)-1]
 			} else {
 				result = result + e.ID
-				uiCtrl.commandArea.Text = originalText + result
-				ui.Render(uiCtrl.grid)
 			}
+
+			uiCtrl.commandArea.Text = originalText + result
+			ui.Render(uiCtrl.grid)
 		}
 	}
 
@@ -356,7 +363,7 @@ See the "Available Commands" below to get started.
 				start := keyboardInput(uiCtrl, "X")
 				if start != "X" {
 					uiCtrl.commandArea.Text = "Type end time format 'YYYY-MM-DD HH:MM:SS' or N for now (X to leave): "
-					ui.Render(uiCtrl.grid)
+					ui.Render(uiCtrl.commandArea)
 					end := keyboardInput(uiCtrl, "X")
 					if end != "X" {
 						// reset start or end time based on indicators - the parseTime method has logic to interpret empty strings
