@@ -216,7 +216,7 @@ func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Clie
 		}
 	}
 	wg.Wait()
-	log.Infof("\n%s", CreateTopicTable(topicsInfo, args.Verbose))
+	log.Infof("\n%s", CreateTopicTable(topicsInfo, args.Verbose, args.Filter))
 	return topics
 }
 

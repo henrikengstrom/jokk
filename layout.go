@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/alexeyco/simpletable"
 	"github.com/henrikengstrom/jokk/kafka"
@@ -30,7 +31,7 @@ func CreateTableRow(values []string, alignment int) (cells []*simpletable.Cell) 
 	return cells
 }
 
-func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
+func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool, filter string) string {
 	table := simpletable.New()
 	headers := []string{}
 	if verbose {
@@ -61,10 +62,15 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 
 	for c, ti := range topicsInfo {
 		rows := []string{}
+		topicName := ti.GeneralTopicInfo.Name
+		if filter != "" && strings.Contains(topicName, filter) {
+			topicName = strings.Replace(topicName, filter, strings.ToUpper(filter), 1)
+		}
+
 		if verbose {
 			rows = []string{
 				fmt.Sprintf("%d", c+1),
-				ti.GeneralTopicInfo.Name,
+				topicName,
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberMessages),
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberPartitions),
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.ReplicationFactor),
@@ -101,7 +107,7 @@ func CreateTopicTable(topicsInfo []kafka.TopicInfo, verbose bool) string {
 		} else {
 			rows = []string{
 				fmt.Sprintf("%d", c+1),
-				ti.GeneralTopicInfo.Name,
+				topicName,
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberMessages),
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.NumberPartitions),
 				fmt.Sprintf("%d", ti.GeneralTopicInfo.ReplicationFactor),
