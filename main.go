@@ -374,7 +374,7 @@ Loop:
 			msgTicker = time.NewTicker(3 * time.Second)
 		}
 	}
-
+	consumer.Close()
 }
 
 func storeMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {

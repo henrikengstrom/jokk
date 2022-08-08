@@ -74,6 +74,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
 			case "Q":
+				ui.Close()
 				os.Exit(0)
 			case "C":
 				// create topic
@@ -196,6 +197,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 			case "M":
 				internalMainManuLoop(envCtrl, uiCtrl)
 			case "Q", "<C-c>":
+				ui.Close()
 				os.Exit(0)
 			case "D":
 				cPos, sPos, text := handleScroll(topicName, scrollPosition, 1, availableRows, rowsContent)
@@ -238,7 +240,7 @@ func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl 
 		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
 	}
 	uiCtrl.mainArea.Title = titleText
-	commandText := "N:Next Message, T:Topic Info, L:List Topics, M:Main, Q:Quit"
+	commandText := "N:Next Message, Z:Refresh Page, T:Topic Info, L:List Topics, M:Main, Q:Quit"
 	uiCtrl.commandArea.Text = commandText
 	text := "Retrieving messages..."
 	uiCtrl.mainArea.Text = text
@@ -257,8 +259,17 @@ func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl 
 				case "L":
 					listTopicsLoop(envCtrl, uiCtrl)
 				case "M":
+					resultChan = nil
+					commandChan <- "N"
+					commandChan = nil
 					internalMainManuLoop(envCtrl, uiCtrl)
+				case "Z":
+					resultChan = nil
+					commandChan <- "N"
+					commandChan = nil
+					viewMessagesLoop(topicName, topicDetail, envCtrl, uiCtrl)
 				case "Q", "<C-c>":
+					ui.Close()
 					os.Exit(0)
 				}
 			}
@@ -277,8 +288,12 @@ func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl 
 				uiCtrl.mainArea.Text = text
 				ui.Render(uiCtrl.mainArea)
 			} else {
-				uiCtrl.commandArea.Text = "T:Topic Info, L:List Topics, M:Main, Q:Quit"
-				text = fmt.Sprintf("*** No more messages available ***\n%s", text)
+				uiCtrl.commandArea.Text = "Z:Refresh Page, T:Topic Info, L:List Topics, M:Main, Q:Quit"
+				if strings.Contains(text, "Retreiving messages...") {
+					text = "*** No messages aviailable ***"
+				} else {
+					text = fmt.Sprintf("*** No more messages available ***\n%s", text)
+				}
 				uiCtrl.mainArea.Text = text
 				ui.Render(uiCtrl.grid)
 			}
@@ -346,6 +361,7 @@ See the "Available Commands" below to get started.
 		if e.Type == ui.KeyboardEvent {
 			switch strings.ToUpper(e.ID) {
 			case "Q", "<C-c>":
+				ui.Close()
 				os.Exit(0)
 			case "L":
 				listTopicsLoop(envCtrl, uiCtrl)
