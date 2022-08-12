@@ -128,7 +128,7 @@ func main() {
 	case "viewMessages":
 		viewMessagesConsole(log, admin, consumer, kc, args)
 	case "storeMessages":
-		storeMessages(log, admin, consumer, kc, args)
+		storeMessagesConsole(log, admin, consumer, kc, args)
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
@@ -377,25 +377,28 @@ Loop:
 	consumer.Close()
 }
 
-func storeMessages(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
+func storeMessagesConsole(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
 	fileName := dialogue("Enter a file name to use", "X")
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	return storeMessages(log, fileName, topicName, consumer, args)
+}
+
+func storeMessages(log common.Logger, fileName string, topicName string, consumer kafka.JokkConsumer, args Args) error {
 	f, err := os.Create(fileName)
 	if err != nil {
 		log.Errorf("Could not create file: %s - %v", fileName, err)
 		return err
 	}
-	topics, _ := admin.ListTopics()
-	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
-	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+
 	consumer.StartReceivingMessages(topicName)
 	start, end, err := parseTime(log, args.StartTime, args.EndTime)
 	if err != nil {
 		log.Errorf("Could not parse time for file: %s - %v", fileName, err)
 		return err
 	}
-
 	msgTicker := time.NewTicker(1 * time.Second)
-
 Loop:
 	for {
 		select {
