@@ -158,7 +158,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
 	}
 	uiCtrl.mainArea.Title = titleText
-	menuText := "C:Clear/Empty Topic, V:View Messages, L:List Topics, Z:Refresh Page, M:Main, Q:Quit"
+	menuText := "C:Clear/Empty Topic, V:View Messages, S:Save Messages, L:List Topics, Z:Refresh Page, M:Main, Q:Quit"
 	availableRows := uiCtrl.mainArea.Dy()
 	content := envCtrl.logger.ContentString()
 	rowsContent := strings.Split(content, "\n")
@@ -192,6 +192,17 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 					clearTopic(topicName, &envCtrl.logger, envCtrl.admin, envCtrl.client)
 				}
 				topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
+			case "S":
+				uiCtrl.commandArea.Text = "File name to save messages to: "
+				ui.Render(uiCtrl.commandArea)
+				fileName := keyboardInput(uiCtrl, "X")
+				if fileName != "X" {
+					storeMessages(&envCtrl.logger, fileName, topicName, envCtrl.consumer, envCtrl.args)
+					uiCtrl.commandArea.Text = fmt.Sprintf("Messages saved to: %s - press enter to continue", fileName)
+					ui.Render(uiCtrl.commandArea)
+					keyboardInput(uiCtrl, "X")
+					topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
+				}
 			case "L":
 				listTopicsLoop(envCtrl, uiCtrl)
 			case "M":
