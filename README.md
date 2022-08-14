@@ -56,14 +56,15 @@ Help Options:
   -h, --help              Show this help message
 
 Available commands:
-  addTopic       Add a topic to the Kafka cluster
-  clearTopic     Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)
-  deleteTopic    Delete a topic from the Kafka cluster (use -f/filter to determine topic)
-  interactive    Interactive mode
-  listTopics     List topics and related information
-  storeMessages  Store messages from a topic to disc (use -f/filter to determine topic)
-  topicInfo      Detailed topic info (use -f/filter to determine topic(s))
-  viewMessages   View messages in a topic (use -f/filter to determine topic)
+  addTopic        Add a topic to the Kafka cluster
+  clearTopic      Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)
+  deleteTopic     Delete a topic from the Kafka cluster (use -f/filter to determine topic)
+  importMessages  Import/publish messages to a topic from a file (use -f/filter to determine topic)
+  interactive     Interactive mode
+  listTopics      List topics and related information
+  storeMessages   Store messages from a topic to a file (use -f/filter to determine topic)
+  topicInfo       Detailed topic info (use -f/filter to determine topic(s))
+  viewMessages    View messages in a topic (use -f/filter to determine topic)
 ```
 
 The examples below use `-n local` but you can substitute this with whatever environment configurations you have provided in the `jokk.toml` file.
@@ -176,7 +177,8 @@ Enter a file name to use (.json will automatically be added): test
 
 The JSON file content will look like this:
 ```
-{
+[
+  {
     "Headers": [],
     "Timestamp": "2022-07-20T18:01:28.971-04:00",
     "BlockTimestamp": "0001-01-01T00:00:00Z",
@@ -185,7 +187,7 @@ The JSON file content will look like this:
     "Topic": "topicx",
     "Partition": 0,
     "Offset": 933
-}{
+  },{
     "Headers": [],
     "Timestamp": "2022-07-20T18:01:28.98-04:00",
     "BlockTimestamp": "0001-01-01T00:00:00Z",
@@ -194,8 +196,25 @@ The JSON file content will look like this:
     "Topic": "topicx",
     "Partition": 0,
     "Offset": 934
-}
-...
+  },
+  ...
+]
+```
+
+### Import/Publish messages
+
+Imports messages from file to a topic. The layout of the imported file must follow the same as in the store messages output.
+
+```
+./jokk -n local importMessages
+2022-08-13T18:02:56-06:00 INF Welcome to Jokk
+2022-08-13T18:02:56-06:00 INF running settings for environment: local
+2022-08-13T18:02:56-06:00 INF calling host: localhost:9092
+Enter a file name to use: msg.json
+2022-08-13T18:02:58-06:00 INF 1: topicx.y
+2022-08-13T18:02:58-06:00 INF 2: topicx.z
+pick a number (0 to exit): 1
+2022-08-13T18:03:00-06:00 INF Imported 36 messages to topic topicx.y
 ```
 
 ### Interactive Mode

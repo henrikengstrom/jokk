@@ -32,7 +32,8 @@ type Args struct {
 	DeleteTopic           JokkConfig `command:"deleteTopic" description:"Delete a topic from the Kafka cluster (use -f/filter to determine topic)"`
 	ClearTopic            JokkConfig `command:"clearTopic" description:"Clear messages from a topic in the Kafka cluster (use -f/filter to determine topic)"`
 	ViewMessages          JokkConfig `command:"viewMessages" description:"View messages in a topic (use -f/filter to determine topic)"`
-	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to disc (use -f/filter to determine topic)"`
+	StoreMessages         JokkConfig `command:"storeMessages" description:"Store messages from a topic to a file (use -f/filter to determine topic)"`
+	ImportMessages        JokkConfig `command:"importMessages" description:"Import/publish messages to a topic from a file (use -f/filter to determine topic)"`
 	InteractiveMode       JokkConfig `command:"interactive" description:"Interactive mode"`
 	Verbose               bool       `short:"v" long:"verbose" description:"Display verbose information when available"`
 }
@@ -81,6 +82,10 @@ func main() {
 	if err != nil {
 		log.Panic("cannot create kafka consumer config")
 	}
+	pc, err := jokkConfig.kafkaConfig.kafkaProducerConf()
+	if err != nil {
+		log.Panic("cannot create kafka producer config")
+	}
 
 	log.Infof("running settings for environment: %s", args.Environment)
 	kafkaSettings := jokkConfig.KafkaSettings[args.Environment]
@@ -114,7 +119,7 @@ func main() {
 
 	switch parser.Active.Name {
 	case "interactive":
-		MainMenuLoop(log, admin, client, consumer, args, kafkaSettings.Host)
+		MainMenuLoop(log, admin, client, consumer, pc, args, kafkaSettings.Host)
 	case "listTopics":
 		listTopics(log, admin, client, args)
 	case "topicInfo":
@@ -129,6 +134,8 @@ func main() {
 		viewMessagesConsole(log, admin, consumer, kc, args)
 	case "storeMessages":
 		storeMessagesConsole(log, admin, consumer, kc, args)
+	case "importMessages":
+		importMessagesConsole(log, admin, []string{kafkaSettings.Host}, pc, args)
 	default:
 		log.Error("no command provided - exiting")
 		os.Exit(0)
@@ -399,6 +406,8 @@ func storeMessages(log common.Logger, fileName string, topicName string, consume
 		return err
 	}
 	msgTicker := time.NewTicker(1 * time.Second)
+	f.WriteString("[")
+	first := true
 Loop:
 	for {
 		select {
@@ -409,7 +418,12 @@ Loop:
 			if (start.Before(msg.Timestamp)) && end.After(msg.Timestamp) {
 				if args.RecordFormat == "JSON" {
 					b, _ := json.MarshalIndent(msg, "", "    ")
-					f.WriteString(string(b))
+					if first {
+						first = false
+						f.WriteString(string(b))
+					} else {
+						f.WriteString(fmt.Sprintf(",%s", string(b)))
+					}
 				} else {
 					b := msg.Value
 					f.Write(b)
@@ -419,7 +433,62 @@ Loop:
 		}
 	}
 
+	f.WriteString("]")
 	log.Infof("Finished writing messages to file: %s", fileName)
 	f.Close()
 	return nil
+}
+
+func importMessagesConsole(log common.Logger, admin sarama.ClusterAdmin, brokers []string, config *sarama.Config, args Args) (int, error) {
+	fileName := dialogue("Enter a file name to use", "X")
+	topics, _ := admin.ListTopics()
+	filteredTopics, filteredTopicNames, hits := filterTopics(topics, args.Filter)
+	topicName, _ := pickTopic(log, filteredTopics, filteredTopicNames, hits, args.Filter)
+	msgCount, err := importMessages(log, fileName, topicName, brokers, config, args)
+	if err != nil {
+		log.Infof("Could not import messages from file: %s, %v", fileName, err)
+	} else {
+		log.Infof("Imported %d messages to topic %s", msgCount, topicName)
+	}
+	return msgCount, err
+}
+
+func importMessages(log common.Logger, fileName string, topicName string, brokers []string, config *sarama.Config, args Args) (int, error) {
+	log.Infof("reading from file: %s\n", fileName)
+
+	bytes, err := os.ReadFile(fileName)
+	if err != nil {
+		return 0, err
+	}
+
+	log.Infof("bytes len: %d\n", len(bytes))
+
+	msgs := []sarama.ConsumerMessage{}
+	err = json.Unmarshal(bytes, &msgs)
+	if err != nil {
+		return 0, err
+	}
+
+	log.Infof("Msgs converted from JSON: %v\n", msgs)
+
+	producer, err := kafka.NewProducer(brokers, config)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, cMsg := range msgs {
+		// TODO : any other info to use?
+		pMsg := sarama.ProducerMessage{
+			Topic:     topicName,
+			Partition: cMsg.Partition,
+			Key:       sarama.ByteEncoder(cMsg.Key),
+			Value:     sarama.ByteEncoder(cMsg.Value),
+		}
+		_, _, err = producer.SendMessage(&pMsg)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return len(msgs), nil
 }

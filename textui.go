@@ -22,11 +22,13 @@ type UICtrl struct {
 }
 
 type EnvCtrl struct {
-	logger   common.CacheLogger
-	admin    sarama.ClusterAdmin
-	client   sarama.Client
-	consumer kafka.JokkConsumer
-	args     Args
+	logger         common.CacheLogger
+	admin          sarama.ClusterAdmin
+	client         sarama.Client
+	consumer       kafka.JokkConsumer
+	args           Args
+	kafkaHost      string
+	producerConfig *sarama.Config
 }
 
 func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
@@ -158,7 +160,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
 	}
 	uiCtrl.mainArea.Title = titleText
-	menuText := "C:Clear/Empty Topic, V:View Messages, S:Save Messages, L:List Topics, Z:Refresh Page, M:Main, Q:Quit"
+	menuText := "C:Clear/Empty Topic, V:View Messages, S:Save Messages, I:Import Messages, L:List Topics, Z:Refresh Page, M:Main, Q:Quit"
 	availableRows := uiCtrl.mainArea.Dy()
 	content := envCtrl.logger.ContentString()
 	rowsContent := strings.Split(content, "\n")
@@ -199,6 +201,21 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 				if fileName != "X" {
 					storeMessages(&envCtrl.logger, fileName, topicName, envCtrl.consumer, envCtrl.args)
 					uiCtrl.commandArea.Text = fmt.Sprintf("Messages saved to: %s - press enter to continue", fileName)
+					ui.Render(uiCtrl.commandArea)
+					keyboardInput(uiCtrl, "X")
+					topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
+				}
+			case "I":
+				uiCtrl.commandArea.Text = "File name to import messages from: "
+				ui.Render(uiCtrl.commandArea)
+				fileName := keyboardInput(uiCtrl, "X")
+				if fileName != "X" {
+					msgCount, err := importMessages(&envCtrl.logger, fileName, topicName, []string{envCtrl.kafkaHost}, envCtrl.producerConfig, envCtrl.args)
+					if err != nil {
+						uiCtrl.commandArea.Text = fmt.Sprintf("Could not import messages from file: %s, %v - press enter to continue", fileName, err)
+					} else {
+						uiCtrl.commandArea.Text = fmt.Sprintf("Imported %d messages to topic %s - press enter to continue", msgCount, topicName)
+					}
 					ui.Render(uiCtrl.commandArea)
 					keyboardInput(uiCtrl, "X")
 					topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
@@ -422,7 +439,7 @@ See the "Available Commands" below to get started.
 	}
 }
 
-func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, consumer kafka.JokkConsumer, args Args, kafkaHost string) {
+func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, consumer kafka.JokkConsumer, producerConf *sarama.Config, args Args, kafkaHost string) {
 	if err := ui.Init(); err != nil {
 		log.Panicf("failed to initialize termui: %v", err)
 	}
@@ -458,11 +475,13 @@ func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Cl
 	ui.Render(grid)
 
 	envCtrl := EnvCtrl{
-		logger:   common.NewCacheLogger(),
-		admin:    admin,
-		client:   client,
-		consumer: consumer,
-		args:     args,
+		logger:         common.NewCacheLogger(),
+		admin:          admin,
+		client:         client,
+		consumer:       consumer,
+		args:           args,
+		kafkaHost:      kafkaHost,
+		producerConfig: producerConf,
 	}
 
 	uiCtrl := UICtrl{
