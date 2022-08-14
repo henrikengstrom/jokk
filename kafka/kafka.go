@@ -65,6 +65,20 @@ func DefaultConsumerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *s
 	return conf
 }
 
+func DefaultProducerConfig(clientId string, kafkaVersion sarama.KafkaVersion) *sarama.Config {
+	conf := sarama.NewConfig()
+	conf.ClientID = clientId
+	conf.Metadata.Full = true
+	conf.Producer.MaxMessageBytes = 5048576
+	conf.Producer.Partitioner = sarama.NewRandomPartitioner
+	conf.Producer.Retry.Max = 1
+	conf.Producer.RequiredAcks = sarama.WaitForAll
+	conf.Producer.Return.Successes = true
+	conf.Metadata.Full = true
+	conf.Version = kafkaVersion
+	return conf
+}
+
 func NewKafkaClient(log common.ConsoleLogger, brokers []string, config *sarama.Config) sarama.Client {
 	client, err := sarama.NewClient(brokers, config)
 	if err != nil {

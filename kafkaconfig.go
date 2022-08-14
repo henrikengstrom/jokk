@@ -44,3 +44,12 @@ func (k *kafkaConfig) kafkaConsumerConf() (conf *sarama.Config, err error) {
 	conf = kafka.DefaultConsumerConfig("jokk_client", kafkaVersion)
 	return conf, err
 }
+
+func (k *kafkaConfig) kafkaProducerConf() (conf *sarama.Config, err error) {
+	kafkaVersion, err := k.GetKafkaVersion()
+	if err != nil {
+		return
+	}
+	conf = kafka.DefaultProducerConfig("jokk_client", kafkaVersion)
+	return conf, err
+}
