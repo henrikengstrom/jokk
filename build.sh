@@ -81,6 +81,7 @@ function usage() {
   echo '  -c|--clean              Clean generated artifacts'
   echo "  -C|--clean-all          Clean all artifacts and the Go module cache"
   echo "  -b|--build              Build using local tooling"
+  echo "  -d|--distribution       Create a tarball distribution"
 }
 
 clean=0

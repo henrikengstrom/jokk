@@ -26,6 +26,8 @@ For more build options see `build.sh`:
 ./build.sh -h
 ```
 
+Or if you prefer you can [download](https://https://github.com/henrikengstrom/jokk/tree/main/distribution/exec) a pre-built package for your choice of OS.
+
 ### Configuration
 
 First you must let jokk know what Kafka environments you want to inspect. To do so, simply copy the file `jokk.toml.example` to `jokk.toml` and add the required information. The local Kafka environment settings are pre-filled and if you have a local instance running you can access it by setting the environment flag to `-e local`.
@@ -67,7 +69,13 @@ Available commands:
   viewMessages    View messages in a topic (use -f/filter to determine topic)
 ```
 
-The examples below use `-n local` but you can substitute this with whatever environment configurations you have provided in the `jokk.toml` file.
+### Create a `jokk.toml` file
+
+There is an example file `jokk.toml.example` that contains a template for how to create so-called environments that can be pointed to when running Jokk. In this example file there are two environments, local and remote, but you can, of course, create as many as you like and name them as you wish. For example, for my own personal use I have "local", "dev", "integration", "qa", and "prod". 
+
+Copy the file over to `jokk.toml` and amend it in the way you deem necessary.
+
+The examples below use `-n local` but you can substitute this with whatever environments you have provided in the `jokk.toml` file.
 
 ### List topics
 

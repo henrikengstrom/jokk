@@ -52,7 +52,7 @@ type JokkConfig struct {
 }
 
 func main() {
-	log := common.NewConsoleLogger()
+	var log common.Logger = common.NewConsoleLogger()
 	log.Info("Welcome to Jokk")
 	var args Args
 	var parser = flags.NewParser(&args, flags.Default)
@@ -119,7 +119,8 @@ func main() {
 
 	switch parser.Active.Name {
 	case "interactive":
-		MainMenuLoop(log, admin, client, consumer, pc, args, kafkaSettings.Host)
+		MainLoop(log, admin, client, consumer, kc, pc, args, kafkaSettings.Host)
+		//MainMenuLoop(log, admin, client, consumer, pc, args, kafkaSettings.Host)
 	case "listTopics":
 		listTopics(log, admin, client, args)
 	case "topicInfo":
@@ -198,7 +199,7 @@ func (jc *JokkConfig) loadFromFile(file string) error {
 	return nil
 }
 
-func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) map[string]sarama.TopicDetail {
+func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) (map[string]sarama.TopicDetail, []kafka.TopicInfo) {
 	topics, _ := admin.ListTopics()
 	topicsInfo := []kafka.TopicInfo{}
 	var wg sync.WaitGroup
@@ -224,7 +225,7 @@ func listTopics(log common.Logger, admin sarama.ClusterAdmin, client sarama.Clie
 	}
 	wg.Wait()
 	log.Infof("\n%s", CreateTopicTable(topicsInfo, args.Verbose, args.Filter))
-	return topics
+	return topics, topicsInfo
 }
 
 func topicInfoConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
@@ -236,7 +237,7 @@ func topicInfoConsole(log common.Logger, admin sarama.ClusterAdmin, client saram
 }
 
 // FIXME : topic info should use activated time period for messages etc.
-func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDetail, admin sarama.ClusterAdmin, client sarama.Client) {
+func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDetail, admin sarama.ClusterAdmin, client sarama.Client) (kafka.TopicDetailInfo, []int, []int, []int) {
 	pdci := kafka.DetailedPartitionInfo(admin, client, topicName)
 	topicsDetailInfo := kafka.TopicDetailInfo{
 		GeneralTopicInfo: kafka.GeneralTopicInfo{
@@ -252,6 +253,7 @@ func topicInfo(log common.Logger, topicName string, topicDetail sarama.TopicDeta
 
 	msgCounts24h, msgCounts1h, msgCounts1m := kafka.TimeBasedPartitionCount(client, topicName)
 	log.Infof("\n%s", CreateTopicDetailTable(topicsDetailInfo, msgCounts24h, msgCounts1h, msgCounts1m))
+	return topicsDetailInfo, msgCounts24h, msgCounts1h, msgCounts1m
 }
 
 func addTopicConsole(log common.Logger, admin sarama.ClusterAdmin, client sarama.Client, args Args) {
@@ -381,7 +383,7 @@ Loop:
 			msgTicker = time.NewTicker(3 * time.Second)
 		}
 	}
-	consumer.Close()
+	//consumer.Close()
 }
 
 func storeMessagesConsole(log common.Logger, admin sarama.ClusterAdmin, consumer kafka.JokkConsumer, config *sarama.Config, args Args) error {
@@ -405,7 +407,7 @@ func storeMessages(log common.Logger, fileName string, topicName string, consume
 		log.Errorf("Could not parse time for file: %s - %v", fileName, err)
 		return err
 	}
-	msgTicker := time.NewTicker(1 * time.Second)
+	msgTicker := time.NewTicker(3 * time.Second)
 	f.WriteString("[")
 	first := true
 Loop:

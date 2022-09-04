@@ -21,16 +21,6 @@ type UICtrl struct {
 	grid        *ui.Grid
 }
 
-type EnvCtrl struct {
-	logger         common.CacheLogger
-	admin          sarama.ClusterAdmin
-	client         sarama.Client
-	consumer       kafka.JokkConsumer
-	args           Args
-	kafkaHost      string
-	producerConfig *sarama.Config
-}
-
 func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
 	titleText := fmt.Sprintf("List Topics - data retrieved %s", time.Now().Format("2006-01-02 15:04:05"))
@@ -46,7 +36,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 	uiCtrl.mainArea.Text = "Retrieving topics..."
 	ui.Render(uiCtrl.grid)
 
-	topics := listTopics(&envCtrl.logger, envCtrl.admin, envCtrl.client, envCtrl.args)
+	topics, _ := listTopics(envCtrl.logger, envCtrl.admin, envCtrl.client, envCtrl.args)
 	menuText := "T:Topic Info, C:Create Topic, R:Remove Topic, F:Filter, Z:Refresh Page, M:Main, Q:Quit"
 	availableRows := uiCtrl.mainArea.Dy()
 	content := envCtrl.logger.ContentString()
@@ -91,7 +81,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 				ui.Render(uiCtrl.grid)
 				replicationFactor := keyboardInput(uiCtrl, "0")
 				numReplicationFactor, _ := strconv.Atoi(replicationFactor)
-				addTopic(topicName, int32(numPartitions), int16(numReplicationFactor), &envCtrl.logger, envCtrl.admin)
+				addTopic(topicName, int32(numPartitions), int16(numReplicationFactor), envCtrl.logger, envCtrl.admin)
 				listTopicsLoop(envCtrl, uiCtrl)
 			case "R":
 				// remove/delete topic
@@ -101,7 +91,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 				if topicNumber != "X" {
 					topicName := extractTopicName(topicNumber, rowsContent)
 					if topicName != "" {
-						deleteTopic(topicName, &envCtrl.logger, envCtrl.admin)
+						deleteTopic(topicName, envCtrl.logger, envCtrl.admin)
 					}
 					listTopicsLoop(envCtrl, uiCtrl)
 				}
@@ -154,7 +144,7 @@ func listTopicsLoop(envCtrl EnvCtrl, uiCtrl UICtrl) {
 
 func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl EnvCtrl, uiCtrl UICtrl) {
 	envCtrl.logger.Clear()
-	topicInfo(&envCtrl.logger, topicName, topicDetail, envCtrl.admin, envCtrl.client)
+	topicInfo(envCtrl.logger, topicName, topicDetail, envCtrl.admin, envCtrl.client)
 	titleText := fmt.Sprintf("Topic Info - data retrieved %s", time.Now().Format("2006-01-02 15:04:05"))
 	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
 		titleText = fmt.Sprintf("%s  - period '%s to %s'", titleText, envCtrl.args.StartTime, envCtrl.args.EndTime)
@@ -191,7 +181,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 				if response == "Y" {
 					uiCtrl.mainArea.Text = "Clearing messages from topic..."
 					ui.Render(uiCtrl.grid)
-					clearTopic(topicName, &envCtrl.logger, envCtrl.admin, envCtrl.client)
+					clearTopic(topicName, envCtrl.logger, envCtrl.admin, envCtrl.client)
 				}
 				topicInfoLoop(topicName, topicDetail, envCtrl, uiCtrl)
 			case "S":
@@ -199,7 +189,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 				ui.Render(uiCtrl.commandArea)
 				fileName := keyboardInput(uiCtrl, "X")
 				if fileName != "X" {
-					storeMessages(&envCtrl.logger, fileName, topicName, envCtrl.consumer, envCtrl.args)
+					storeMessages(envCtrl.logger, fileName, topicName, envCtrl.consumer, envCtrl.args)
 					uiCtrl.commandArea.Text = fmt.Sprintf("Messages saved to: %s - press enter to continue", fileName)
 					ui.Render(uiCtrl.commandArea)
 					keyboardInput(uiCtrl, "X")
@@ -210,7 +200,7 @@ func topicInfoLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl Env
 				ui.Render(uiCtrl.commandArea)
 				fileName := keyboardInput(uiCtrl, "X")
 				if fileName != "X" {
-					msgCount, err := importMessages(&envCtrl.logger, fileName, topicName, []string{envCtrl.kafkaHost}, envCtrl.producerConfig, envCtrl.args)
+					msgCount, err := importMessages(envCtrl.logger, fileName, topicName, []string{envCtrl.kafkaHost}, envCtrl.producerConfig, envCtrl.args)
 					if err != nil {
 						uiCtrl.commandArea.Text = fmt.Sprintf("Could not import messages from file: %s, %v - press enter to continue", fileName, err)
 					} else {
@@ -261,7 +251,7 @@ type MsgInfo struct {
 func viewMessagesLoop(topicName string, topicDetail sarama.TopicDetail, envCtrl EnvCtrl, uiCtrl UICtrl) {
 	resultChan := make(chan sarama.ConsumerMessage)
 	commandChan := make(chan string)
-	go viewMessages(topicName, &envCtrl.logger, envCtrl.consumer, envCtrl.args, resultChan, commandChan)
+	go viewMessages(topicName, envCtrl.logger, envCtrl.consumer, envCtrl.args, resultChan, commandChan)
 
 	titleText := fmt.Sprintf("View Messages - topic '%s'", topicName)
 	if envCtrl.args.StartTime != "" || envCtrl.args.EndTime != "" {
@@ -417,7 +407,7 @@ See the "Available Commands" below to get started.
 						if end == "N" {
 							end = ""
 						}
-						st, et, err := parseTime(&envCtrl.logger, start, end)
+						st, et, err := parseTime(envCtrl.logger, start, end)
 						if err != nil {
 							uiCtrl.commandArea.Text = fmt.Sprintf("Press enter to try again: Input error %v", err)
 							ui.Render(uiCtrl.grid)
@@ -474,8 +464,10 @@ func MainMenuLoop(log common.Logger, admin sarama.ClusterAdmin, client sarama.Cl
 	)
 	ui.Render(grid)
 
+	var logger common.Logger = common.NewCacheLogger()
+
 	envCtrl := EnvCtrl{
-		logger:         common.NewCacheLogger(),
+		logger:         logger,
 		admin:          admin,
 		client:         client,
 		consumer:       consumer,

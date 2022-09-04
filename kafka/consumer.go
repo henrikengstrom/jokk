@@ -11,7 +11,7 @@ import (
 )
 
 type JokkConsumer struct {
-	logger     common.ConsoleLogger
+	logger     common.Logger
 	consumer   sarama.ConsumerGroup
 	topicChan  chan string
 	MsgChannel chan sarama.ConsumerMessage
@@ -41,7 +41,7 @@ func (jc *JokkConsumer) Close() error {
 	return jc.consumer.Close() // FIXME : this hangs indefinitely...
 }
 
-func NewConsumer(log common.ConsoleLogger, host string, conf *sarama.Config) (JokkConsumer, error) {
+func NewConsumer(log common.Logger, host string, conf *sarama.Config) (JokkConsumer, error) {
 	cg, err := sarama.NewConsumerGroup([]string{host}, fmt.Sprintf("jokk-cg-%v", time.Now().Nanosecond()), conf)
 	if err != nil {
 		return JokkConsumer{}, err
