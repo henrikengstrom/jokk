@@ -26,7 +26,7 @@ For more build options see `build.sh`:
 ./build.sh -h
 ```
 
-Or if you prefer you can [download](https://https://github.com/henrikengstrom/jokk/tree/main/distribution/exec) a pre-built package for your choice of OS.
+Or if you prefer you can [download](https://github.com/henrikengstrom/jokk/tree/main/distribution/exec) a pre-built package for your choice of OS.
 
 ### Configuration
 
