@@ -8,7 +8,7 @@
     enable_sasl = false
 
     # example of how to connect to a remote running Kafka
-    # note: this connection is referred to as "remote", i.e. "-e remote" on the command line
+    # note: this connection is referred to as "remote", i.e. "-n remote" on the command line
     # it's possible to add more connections with unique names
     [kafka.remote]
     host = ""

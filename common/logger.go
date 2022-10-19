@@ -16,6 +16,9 @@ type CacheLogger struct {
 	cache []string
 }
 
+type DevNullLogger struct {
+}
+
 type Logger interface {
 	Info(msg string)
 	Warn(msg string)
@@ -25,7 +28,34 @@ type Logger interface {
 	Warnf(format string, args ...any)
 	Errorf(format string, args ...any)
 	Panicf(format string, args ...any)
+	ContentString() string
+	Content() []string
+	Clear()
 }
+
+// DEV NULL LOGGER
+
+func NewDevNullLogger() DevNullLogger {
+	return DevNullLogger{}
+}
+
+func (l DevNullLogger) Info(msg string)                   {}
+func (l DevNullLogger) Warn(msg string)                   {}
+func (l DevNullLogger) Error(msg string)                  {}
+func (l DevNullLogger) Panic(msg string)                  {}
+func (l DevNullLogger) Infof(format string, args ...any)  {}
+func (l DevNullLogger) Warnf(format string, args ...any)  {}
+func (l DevNullLogger) Errorf(format string, args ...any) {}
+func (l DevNullLogger) Panicf(format string, args ...any) {}
+func (l DevNullLogger) ContentString() string {
+	return ""
+}
+func (l DevNullLogger) Content() []string {
+	return []string{""}
+}
+func (l DevNullLogger) Clear() {}
+
+// CONSOLE LOGGER
 
 func NewConsoleLogger() ConsoleLogger {
 	return ConsoleLogger{
@@ -65,8 +95,20 @@ func (l ConsoleLogger) Panicf(msg string, args ...any) {
 	l.logger.Panic().Msg(fmt.Sprintf(msg, args...))
 }
 
-func NewCacheLogger() CacheLogger {
-	return CacheLogger{
+func (l ConsoleLogger) ContentString() string {
+	return ""
+}
+
+func (l ConsoleLogger) Content() []string {
+	return []string{""}
+}
+
+func (l ConsoleLogger) Clear() {}
+
+// CACHE LOGGER
+
+func NewCacheLogger() *CacheLogger {
+	return &CacheLogger{
 		cache: []string{},
 	}
 }
