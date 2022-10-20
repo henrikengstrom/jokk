@@ -120,7 +120,6 @@ func main() {
 	switch parser.Active.Name {
 	case "interactive":
 		MainLoop(log, admin, client, consumer, kc, pc, args, kafkaSettings.Host)
-		//MainMenuLoop(log, admin, client, consumer, pc, args, kafkaSettings.Host)
 	case "listTopics":
 		listTopics(log, admin, client, args)
 	case "topicInfo":
@@ -470,8 +469,6 @@ func importMessages(log common.Logger, fileName string, topicName string, broker
 	if err != nil {
 		return 0, err
 	}
-
-	log.Infof("Msgs converted from JSON: %v\n", msgs)
 
 	producer, err := kafka.NewProducer(brokers, config)
 	if err != nil {

@@ -114,7 +114,7 @@ func topicsPage(ctrl *Ctrl, pickedRow ...int) {
 	update(ctrl, text, nil)
 
 	// Set available commands
-	ctrl.uic.commandArea.SetText("c:Create Topic, r:Remove Topic, e:Clear/Empty Topic, f:Filter, z:Refresh Page, m:Info, q:Quit")
+	ctrl.uic.commandArea.SetText("c:Create Topic, r:Remove Topic, e:Clear/Empty Topic, s:Save Messages, f:Filter, z:Refresh Page, m:Info, q:Quit")
 
 	// Load topics info and create table
 	start := time.Now()
@@ -287,6 +287,25 @@ func topicsPage(ctrl *Ctrl, pickedRow ...int) {
 				AddButton("Cancel", nil)
 			form.SetBorder(true).SetTitle("Create new topic").SetTitleAlign(tview.AlignLeft)
 			ctrl.uic.app.SetRoot(form, true).SetFocus(form).Run()
+		case 's':
+			ctrl.uic.grid.RemoveItem(table)
+			topicName := table.GetCell(selectedRow, 1).Text
+			form := tview.NewForm()
+			now := time.Now().Format("2006-01-02T15:04:05")
+			form.
+				AddInputField("Write messages to file", fmt.Sprintf("%s_%s.json", topicName, now), 75, nil, nil).
+				AddButton("Save", func() {
+					fileName := form.GetFormItem(0).(*tview.InputField).GetText()
+					storeMessages(ctrl.env.logger, fileName, topicName, ctrl.env.consumer, ctrl.env.args)
+					ctrl.uic.grid.RemoveItem(form)
+					form = nil
+					go topicsPage(ctrl, selectedRow)
+				}).
+				AddButton("Cancel", func() {
+					go topicsPage(ctrl, selectedRow)
+				})
+			form.SetBorder(true).SetTitle("Save messages").SetTitleAlign(tview.AlignLeft)
+			ctrl.uic.app.SetRoot(form, true).SetFocus(form).Run()
 		}
 
 		return event
@@ -300,7 +319,7 @@ func topicInfoPage(ctrl *Ctrl, topicName string, topicDetail sarama.TopicDetail)
 	start := time.Now()
 	tdi, msg24h, msg1h, msg1m := topicInfo(ctrl.env.logger, topicName, topicDetail, ctrl.env.admin, ctrl.env.client)
 	ctrl.uic.infoArea.SetText(fmt.Sprintf("%s\n\nTopic information retrieval time %dms @ %s", infoText(&ctrl.env), time.Since(start).Milliseconds(), start.Format(time.RFC3339)))
-	ctrl.uic.commandArea.SetText("e:Clear/Empty Topic, l:List Topics, z:Refresh Page, m:Info, q:Quit")
+	ctrl.uic.commandArea.SetText("e:Clear/Empty Topic, s:Save Messages, l:List Topics, z:Refresh Page, m:Info, q:Quit")
 
 	table := tview.NewTable().
 		SetSelectable(false, false).
@@ -399,23 +418,25 @@ func topicInfoPage(ctrl *Ctrl, topicName string, topicDetail sarama.TopicDetail)
 		case 'm': // main window
 			ctrl.uic.grid.RemoveItem(table)
 			go infoPage(ctrl)
-			/*	- save messages is not working just yet
-				case 's': // save messages
-					ctrl.uic.grid.RemoveItem(table)
-					form := tview.NewForm()
-					form.
-						AddInputField("Write messages to file", "", 75, nil, nil).
-						AddButton("Save", func() {
-							fileName := form.GetFormItem(0).(*tview.InputField).GetText()
-							storeMessages(ctrl.env.logger, fileName, topicName, ctrl.env.consumer, ctrl.env.args)
-							ctrl.uic.grid.RemoveItem(form)
-							form = nil
-							go topicInfoPage(ctrl, topicName, topicDetail)
-						}).
-						AddButton("Cancel", nil)
-					form.SetBorder(true).SetTitle("Save messages").SetTitleAlign(tview.AlignLeft)
-					ctrl.uic.app.SetRoot(form, true).SetFocus(form).Run()
-			*/
+
+		case 's': // save messages
+			ctrl.uic.grid.RemoveItem(table)
+			form := tview.NewForm()
+			now := time.Now().Format("2006-01-02T15:04:05")
+			form.
+				AddInputField("Write messages to file", fmt.Sprintf("%s_%s.json", topicName, now), 75, nil, nil).
+				AddButton("Save", func() {
+					fileName := form.GetFormItem(0).(*tview.InputField).GetText()
+					storeMessages(ctrl.env.logger, fileName, topicName, ctrl.env.consumer, ctrl.env.args)
+					ctrl.uic.grid.RemoveItem(form)
+					form = nil
+					go topicInfoPage(ctrl, topicName, topicDetail)
+				}).
+				AddButton("Cancel", func() {
+					go topicInfoPage(ctrl, topicName, topicDetail)
+				})
+			form.SetBorder(true).SetTitle("Save messages").SetTitleAlign(tview.AlignLeft)
+			ctrl.uic.app.SetRoot(form, true).SetFocus(form).Run()
 		}
 
 		return event
